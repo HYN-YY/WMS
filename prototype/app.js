@@ -1,12 +1,12 @@
-import { kpis } from './data.js?v=6';
+import { kpis } from './data.js?v=7';
 import {
   createInitialState, allocateOrders, releaseWave, resolveShortPick,
   setPackageWeight, confirmShipment, twinSummary, receiveInbound,
   freezeInventory, operationsSummary,
   submitCountVariance, inspectReturn, publishRule, retryIntegration, syncPdaQueue,
   deactivateUser, publishRole, simulatePermission, createUser, createRole, switchRole,
-} from './state.js?v=6';
-import { createUiState, paginateRows, selectTab, selectTwinLayer, visibleTwinParts, searchWorkspace } from './ui-state.js?v=6';
+} from './state.js?v=7';
+import { createUiState, paginateRows, selectTab, selectTwinLayer, visibleTwinParts, searchWorkspace } from './ui-state.js?v=7';
 
 let state = createInitialState();
 let ui = createUiState();
@@ -23,7 +23,6 @@ const sidebar = document.querySelector('.sidebar');
 const roleProfile = () => state.security.roles.find(item=>item.id===state.security.currentRoleId);
 const roleAccess = () => state.security.roleAccess[state.security.currentRoleId];
 const canView = (view) => roleAccess().views.includes(view);
-const scopeBar = () => `<div class="scope-bar"><span><b>${roleProfile().name}</b> · ${roleAccess().scope}</span>${roleAccess().writable?badge('可操作','success'):badge('只读','muted')}<button class="link-button" data-action="switch-role">切换角色</button></div>`;
 
 const statusTone = (value) => ({ 待分配:'muted', 已分配:'info', 拣货中:'info', 异常:'danger', 已释放:'success', 草稿:'muted', 待执行:'muted', 执行中:'info', 待处理:'danger', 观察中:'warning', 已发运:'success', 待发运:'warning' }[value] || 'muted');
 const badge = (text, tone = statusTone(text)) => `<span class="badge ${tone}"><i></i>${text}</span>`;
@@ -63,7 +62,7 @@ function setView(view) {
 function render() {
   const views = { dashboard: dashboardView, orders: ordersView, waves: wavesView, tasks: tasksView, shipping: shippingView, exceptions: exceptionsView, twin: twinView, inventory: inventoryView, inbound: inboundView, reports: reportsView, replenishment: replenishmentView, count: countView, returns: returnsView, master: masterView, rules: rulesView, integrations: integrationsView, printing: printingView, admin: adminView, pda: pdaView };
   if (!canView(state.activeView)) state.activeView=roleAccess().views[0];
-  root.innerHTML = scopeBar() + (views[state.activeView] || futureView)(state.activeView);
+  root.innerHTML = (views[state.activeView] || futureView)(state.activeView);
   document.querySelectorAll('.nav-item[data-view]').forEach(item=>{ item.hidden=!canView(item.dataset.view); item.classList.toggle('active',item.dataset.view===state.activeView); });
   document.querySelectorAll('.nav-label').forEach(label=>{ let next=label.nextElementSibling; let visible=false; while(next && !next.classList.contains('nav-label')){ if(next.classList.contains('nav-item') && !next.hidden) visible=true; next=next.nextElementSibling; } label.hidden=!visible; });
   const profile=roleProfile(), access=roleAccess();
@@ -71,6 +70,12 @@ function render() {
   userCard.querySelector('.avatar').textContent=access.avatar;
   userCard.querySelector('b').textContent=access.user;
   userCard.querySelector('small').textContent=profile.name;
+  const roleContext=document.querySelector('#role-context');
+  if(roleContext){
+    roleContext.querySelector('b').textContent=profile.name;
+    roleContext.querySelector('small').textContent=access.scope;
+    roleContext.querySelector('.role-context-avatar').textContent=access.avatar;
+  }
   if(!access.writable) root.querySelectorAll('button[data-action],button[data-open-shortpick],button.btn.primary,button.btn.danger').forEach(button=>{ if(button.dataset.action!=='switch-role' && button.dataset.action!=='global-search'){button.disabled=true;button.title='当前角色为只读角色';} });
 }
 

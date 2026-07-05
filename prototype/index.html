@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="企业级仓储管理系统高保真交互原型">
   <title>NEXUS WMS · 智能仓储运营中心</title>
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./styles.css?v=7">
 </head>
 <body>
   <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -55,6 +55,7 @@
           <span class="shift"><i></i>早班 · 06:00–14:00</span>
           <button class="icon-button" data-action="global-search" aria-label="搜索">⌕</button>
           <button class="icon-button notification" data-action="notifications" aria-label="通知，有3条未读">♢<i>3</i></button>
+          <button class="role-context" id="role-context" data-action="switch-role" aria-label="切换角色"><span class="role-context-avatar">林</span><span><b>仓库经理</b><small>华东一号仓 · 全部货主</small></span><span class="role-context-arrow">⌄</span></button>
           <span class="sync"><i></i>10:18:32 · 实时</span>
         </div>
       </header>
@@ -82,6 +83,6 @@
   </div>
 
   <div class="toast-region" aria-live="polite" aria-atomic="true" id="toast-region"></div>
-  <script type="module" src="./app.js?v=6"></script>
+  <script type="module" src="./app.js?v=7"></script>
 </body>
 </html>

@@ -17,7 +17,7 @@ test('prototype shell contains required accessible landmarks and views', async (
 
 test('prototype keeps styles and scripts local for offline delivery', async () => {
   const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
-  assert.ok(html.includes('href="./styles.css"'));
-  assert.ok(html.includes('src="./app.js?v=6"'));
+  assert.ok(html.includes('href="./styles.css?v=7"'));
+  assert.ok(html.includes('src="./app.js?v=7"'));
   assert.equal(/https?:\/\//.test(html), false);
 });
