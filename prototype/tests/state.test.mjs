@@ -22,6 +22,7 @@ import {
   simulatePermission,
   createUser,
   createRole,
+  switchRole,
 } from '../state.js';
 
 test('allocation requires at least one selected order', () => {
@@ -201,4 +202,17 @@ test('standard role catalog covers the complete warehouse and governance workflo
     assert.ok(role.actions);
     assert.ok(role.restrictions);
   });
+});
+
+test('role switching applies module, data-scope, and read-only access', () => {
+  const state = createInitialState();
+  const picker = switchRole(state, 'R-PICKER');
+  assert.equal(picker.ok, true);
+  assert.equal(picker.state.security.currentRoleId, 'R-PICKER');
+  assert.equal(picker.state.activeView, 'tasks');
+  assert.deepEqual(picker.state.security.roleAccess['R-PICKER'].views, ['tasks','pda','exceptions']);
+  const auditor = switchRole(state, 'R-AUDITOR');
+  assert.equal(auditor.state.security.roleAccess['R-AUDITOR'].writable, false);
+  assert.match(auditor.state.security.roleAccess['R-AUDITOR'].scope, /脱敏只读/);
+  assert.equal(switchRole(state, 'R-NOT-FOUND').ok, false);
 });

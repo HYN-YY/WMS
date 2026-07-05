@@ -41,6 +41,22 @@ export function createInitialState() {
     integrationQueue: [{ id: 'MSG-260703-0098', system: 'TMS', event: 'shipment_confirmed', retries: 3, status: '人工处理' }],
     pda: { online: false, pendingOperations: ['OP-1001', 'OP-1002'], syncedOperations: [] },
     security: {
+      currentRoleId: 'R-WH-MANAGER',
+      roleAccess: {
+        'R-WH-MANAGER': { user:'林安', avatar:'林', scope:'华东一号仓 · 全部货主', writable:true, views:['dashboard','twin','orders','waves','tasks','shipping','replenishment','exceptions','count','returns','inventory','inbound','reports','printing','pda','admin'] },
+        'R-ORDER-OPS': { user:'宋妍', avatar:'宋', scope:'华东一号仓 · 授权货主与渠道', writable:true, views:['dashboard','orders','waves','tasks','exceptions','reports'] },
+        'R-INBOUND': { user:'王敏', avatar:'王', scope:'华东一号仓 · 本人入库任务', writable:true, views:['inbound','tasks','printing','pda','exceptions'] },
+        'R-QC': { user:'许洁', avatar:'许', scope:'华东一号仓 · 本人质检任务', writable:true, views:['inbound','returns','exceptions','pda'] },
+        'R-PUTAWAY': { user:'李强', avatar:'李', scope:'华东一号仓 · 分配库区与本人任务', writable:true, views:['inbound','inventory','tasks','pda','exceptions'] },
+        'R-INVENTORY': { user:'赵凯', avatar:'赵', scope:'华东一号仓 · 3 个授权货主', writable:true, views:['dashboard','inventory','count','replenishment','returns','reports','exceptions','pda'] },
+        'R-REPLENISH': { user:'韩东', avatar:'韩', scope:'华东一号仓 · 本人补货任务', writable:true, views:['replenishment','inventory','tasks','pda','exceptions'] },
+        'R-PICKER': { user:'周宇', avatar:'周', scope:'华东一号仓 · 本人拣货任务', writable:true, views:['tasks','pda','exceptions'] },
+        'R-PACKER': { user:'陈曦', avatar:'陈', scope:'华东一号仓 · 复核工作站 PK-06', writable:true, views:['shipping','printing','exceptions','pda'] },
+        'R-SHIPPER': { user:'顾航', avatar:'顾', scope:'华东一号仓 · 发运月台 D 区', writable:true, views:['shipping','printing','exceptions'] },
+        'R-SYSTEM-ADMIN': { user:'沈宁', avatar:'沈', scope:'全部仓 · 系统配置数据', writable:true, views:['master','rules','integrations','printing','admin'] },
+        'R-SECURITY-ADMIN': { user:'唐静', avatar:'唐', scope:'全部仓 · 安全配置数据', writable:true, views:['admin','reports'] },
+        'R-AUDITOR': { user:'陆清', avatar:'陆', scope:'全部仓 · 脱敏只读', writable:false, views:['dashboard','orders','tasks','shipping','exceptions','twin','inventory','inbound','reports','master','rules','integrations','printing','admin'] },
+      },
       users: [
         { id:'U-1001', account:'lin.an', name:'林安', employeeNo:'WH0018', organization:'华东运营中心', warehouse:'华东一号仓', position:'仓库经理', roles:['仓库经理'], status:'启用', source:'SSO', lastLogin:'2026-07-03 09:58', unfinished:0 },
         { id:'U-1002', account:'zhou.yu', name:'周宇', employeeNo:'WH0086', organization:'华东运营中心', warehouse:'华东一号仓', position:'拣货员', roles:['拣货员'], status:'启用', source:'SSO', lastLogin:'2026-07-03 09:42', unfinished:3 },
@@ -269,4 +285,13 @@ export function createRole(current, { code, name, scope }) {
   const state=copy(current); state.security.roles.push({id:code,name,type:'自定义角色',users:0,permissions:0,scope,version:'v1',status:'草稿'});
   state.security.audit.push({id:`AUD-260703-${1030+state.security.audit.length}`,time:'10:46:08',event:'role.created',category:'安全配置',actor:'林安',role:'仓库经理',terminal:'WEB-01',object:code,before:'不存在',after:'草稿 v1',reason:'新增业务角色',result:'成功',trace:'TRC-SEC5'});
   return result(state,true,`角色 ${name} 已创建为草稿，请配置权限后发布`);
+}
+
+export function switchRole(current, roleId) {
+  const role=current.security.roles.find(item=>item.id===roleId);
+  const access=current.security.roleAccess[roleId];
+  if(!role || !access) return result(current,false,'角色不存在或尚未配置访问范围');
+  const state=copy(current); state.security.currentRoleId=roleId;
+  if(!access.views.includes(state.activeView)) state.activeView=access.views[0];
+  return result(state,true,`已切换为${role.name}，当前范围：${access.scope}`);
 }

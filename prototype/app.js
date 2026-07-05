@@ -4,7 +4,7 @@ import {
   setPackageWeight, confirmShipment, twinSummary, receiveInbound,
   freezeInventory, operationsSummary,
   submitCountVariance, inspectReturn, publishRule, retryIntegration, syncPdaQueue,
-  deactivateUser, publishRole, simulatePermission, createUser, createRole,
+  deactivateUser, publishRole, simulatePermission, createUser, createRole, switchRole,
 } from './state.js?v=6';
 import { createUiState, paginateRows, selectTab, selectTwinLayer, visibleTwinParts, searchWorkspace } from './ui-state.js?v=6';
 
@@ -20,6 +20,10 @@ const dialogBackdrop = document.querySelector('#dialog-backdrop');
 const dialog = document.querySelector('#confirm-dialog');
 const toastRegion = document.querySelector('#toast-region');
 const sidebar = document.querySelector('.sidebar');
+const roleProfile = () => state.security.roles.find(item=>item.id===state.security.currentRoleId);
+const roleAccess = () => state.security.roleAccess[state.security.currentRoleId];
+const canView = (view) => roleAccess().views.includes(view);
+const scopeBar = () => `<div class="scope-bar"><span><b>${roleProfile().name}</b> · ${roleAccess().scope}</span>${roleAccess().writable?badge('可操作','success'):badge('只读','muted')}<button class="link-button" data-action="switch-role">切换角色</button></div>`;
 
 const statusTone = (value) => ({ 待分配:'muted', 已分配:'info', 拣货中:'info', 异常:'danger', 已释放:'success', 草稿:'muted', 待执行:'muted', 执行中:'info', 待处理:'danger', 观察中:'warning', 已发运:'success', 待发运:'warning' }[value] || 'muted');
 const badge = (text, tone = statusTone(text)) => `<span class="badge ${tone}"><i></i>${text}</span>`;
@@ -35,7 +39,7 @@ const searchDocuments = () => [
   {type:'波次',id:state.wave.id,title:'早班出库波次',meta:state.wave.status,view:'waves'},
   {type:'异常',id:state.shortPick.id,title:state.shortPick.product,meta:state.shortPick.status,view:'exceptions'},
   ...state.integrationQueue.map(item=>({type:'接口消息',id:item.id,title:`${item.system} · ${item.event}`,meta:item.status,view:'integrations'})),
-];
+].filter(item=>canView(item.view));
 const searchResultsMarkup = (query) => { const results=searchWorkspace(searchDocuments(),query); if(!query.trim()) return '<div class="search-empty">输入关键词，支持模糊匹配</div>'; if(!results.length) return '<div class="search-empty">未找到匹配结果，请尝试订单号、SKU 或任务号</div>'; return results.map(item=>`<button class="search-result" data-search-view="${item.view}"><span class="badge info">${item.type}</span><span><b>${item.id}</b><small>${item.title} · ${item.meta||''}</small></span><span>→</span></button>`).join(''); };
 
 function toast(message, ok = true, title = ok ? '操作成功' : '需要处理') {
@@ -47,6 +51,7 @@ function toast(message, ok = true, title = ok ? '操作成功' : '需要处理')
 }
 
 function setView(view) {
+  if (!canView(view)) { toast(`当前“${roleProfile().name}”角色无权访问该模块`,false,'访问被拒绝'); return; }
   state.activeView = view;
   document.querySelectorAll('[data-view]').forEach((item) => item.classList.toggle('active', item.dataset.view === view && item.classList.contains('nav-item')));
   sidebar.classList.remove('open');
@@ -57,7 +62,16 @@ function setView(view) {
 
 function render() {
   const views = { dashboard: dashboardView, orders: ordersView, waves: wavesView, tasks: tasksView, shipping: shippingView, exceptions: exceptionsView, twin: twinView, inventory: inventoryView, inbound: inboundView, reports: reportsView, replenishment: replenishmentView, count: countView, returns: returnsView, master: masterView, rules: rulesView, integrations: integrationsView, printing: printingView, admin: adminView, pda: pdaView };
-  root.innerHTML = (views[state.activeView] || futureView)(state.activeView);
+  if (!canView(state.activeView)) state.activeView=roleAccess().views[0];
+  root.innerHTML = scopeBar() + (views[state.activeView] || futureView)(state.activeView);
+  document.querySelectorAll('.nav-item[data-view]').forEach(item=>{ item.hidden=!canView(item.dataset.view); item.classList.toggle('active',item.dataset.view===state.activeView); });
+  document.querySelectorAll('.nav-label').forEach(label=>{ let next=label.nextElementSibling; let visible=false; while(next && !next.classList.contains('nav-label')){ if(next.classList.contains('nav-item') && !next.hidden) visible=true; next=next.nextElementSibling; } label.hidden=!visible; });
+  const profile=roleProfile(), access=roleAccess();
+  const userCard=document.querySelector('.user-card');
+  userCard.querySelector('.avatar').textContent=access.avatar;
+  userCard.querySelector('b').textContent=access.user;
+  userCard.querySelector('small').textContent=profile.name;
+  if(!access.writable) root.querySelectorAll('button[data-action],button[data-open-shortpick],button.btn.primary,button.btn.danger').forEach(button=>{ if(button.dataset.action!=='switch-role' && button.dataset.action!=='global-search'){button.disabled=true;button.title='当前角色为只读角色';} });
 }
 
 function dashboardView() {
@@ -107,10 +121,10 @@ function wavesView() {
 }
 
 function tasksView() {
-  const mode=ui.tabs.tasks; const shownTasks=mode==='running'?state.tasks.filter(t=>t.status==='执行中'):mode==='waiting'?state.tasks.filter(t=>t.status==='待执行'):state.tasks;
+  const mode=ui.tabs.tasks; const roleTasks=state.security.currentRoleId==='R-PICKER'?state.tasks.filter(t=>['周宇','待领取'].includes(t.assignee)):state.tasks; const shownTasks=mode==='running'?roleTasks.filter(t=>t.status==='执行中'):mode==='waiting'?roleTasks.filter(t=>t.status==='待执行'):roleTasks;
   return `<section class="page">${pageHead('EXECUTION', '作业监控', '追踪任务进度、人员负载并及时恢复阻断异常', `<button class="btn secondary" data-action="auto-assign">智能分配</button><button class="btn primary" data-open-shortpick>处理短拣异常</button>`)}
     <div class="workflow-strip"><div class="workflow-step done"><i>✓</i>订单分配</div><div class="workflow-step done"><i>✓</i>波次释放</div><div class="workflow-step current"><i>3</i>拣货作业</div><div class="workflow-step"><i>4</i>复核包装</div><div class="workflow-step"><i>5</i>发运交接</div></div>
-    <div class="toolbar"><div class="segmented">${tabButton('tasks','all',`全部任务 ${state.tasks.length}`)}${tabButton('tasks','running','执行中')}${tabButton('tasks','waiting','待领取')}${tabButton('tasks','exception','异常 1')}</div></div>
+    <div class="toolbar"><div class="segmented">${tabButton('tasks','all',`全部任务 ${roleTasks.length}`)}${tabButton('tasks','running','执行中')}${tabButton('tasks','waiting','待领取')}${tabButton('tasks','exception','异常 1')}</div></div>
     <div class="task-grid">${mode!=='exception'?shownTasks.map(task=>`<article class="task-card"><header><h3 class="mono">${task.id}</h3>${badge(task.status)}</header><div class="task-meta"><span>${task.zone} · ${task.pieces} 件</span><b>${task.progress}%</b></div><div class="progress"><i style="width:${task.progress}%"></i></div><footer><span>执行人：${task.assignee}</span><button class="link-button" data-task-detail="${task.id}">详情 →</button></footer></article>`).join(''):''}
       ${mode==='all'||mode==='exception'?`<article class="task-card" style="border-color:#fca5a5;background:#fffafa"><header><h3 class="mono">${state.shortPick.id}</h3>${badge(state.shortPick.status)}</header><div class="task-meta"><span>${state.shortPick.product}</span><b>差异 ${state.shortPick.expected-state.shortPick.actual}</b></div><div class="progress"><i style="width:75%;background:#ef4444"></i></div><footer><span>${state.shortPick.zone} · ${state.shortPick.actual}/${state.shortPick.expected}</span><button class="link-button" data-open-shortpick>立即处置 →</button></footer></article>`:''}
     </div></section>`;
@@ -220,8 +234,8 @@ function printingView() {
 }
 
 function adminView() {
-  const sec=state.security; const tab=ui.tabs.admin;
-  const tabs=`<div class="toolbar"><div class="segmented">${tabButton('admin','approvals','审批中心')}${tabButton('admin','users','用户管理')}${tabButton('admin','roles','角色管理')}${tabButton('admin','permissions','权限管理')}${tabButton('admin','audit','审计日志')}</div></div>`;
+  const sec=state.security; const roleTabs={ 'R-WH-MANAGER':['approvals'], 'R-SYSTEM-ADMIN':['users'], 'R-SECURITY-ADMIN':['approvals','users','roles','permissions','audit'], 'R-AUDITOR':['audit'] }; const allowedTabs=roleTabs[sec.currentRoleId]||['audit']; if(!allowedTabs.includes(ui.tabs.admin)) ui.tabs.admin=allowedTabs[0]; const tab=ui.tabs.admin;
+  const tabLabels={approvals:'审批中心',users:'用户管理',roles:'角色管理',permissions:'权限管理',audit:'审计日志'}; const tabs=`<div class="toolbar"><div class="segmented">${allowedTabs.map(id=>tabButton('admin',id,tabLabels[id])).join('')}</div></div>`;
   const approvals=`<div class="kpi-grid"><article class="kpi-card warning"><div class="kpi-label">待我审批</div><div class="kpi-value">${sec.approvals.length}</div><div class="kpi-meta"><b>1 项高风险</b></div></article><article class="kpi-card"><div class="kpi-label">即将超时</div><div class="kpi-value">1</div><div class="kpi-meta"><b>剩余 38 分钟</b></div></article><article class="kpi-card success"><div class="kpi-label">今日已处理</div><div class="kpi-value">12</div><div class="kpi-meta"><b>平均 8.6 分钟</b></div></article><article class="kpi-card"><div class="kpi-label">执行失败</div><div class="kpi-value">0</div><div class="kpi-meta"><b>受控事务正常</b></div></article></div><article class="panel table-panel"><div class="table-wrap"><table class="data-table"><thead><tr><th>审批单</th><th>类型</th><th>申请人</th><th>业务对象</th><th>变更摘要</th><th>风险</th><th>当前节点 / SLA</th><th>操作</th></tr></thead><tbody>${sec.approvals.map(a=>`<tr><td class="mono">${a.id}</td><td>${a.type}</td><td>${a.applicant}</td><td>${a.object}</td><td>${a.summary}</td><td>${badge(a.risk==='高'?'高风险':a.risk,a.risk==='高'?'danger':'warning')}</td><td>${a.node}<br><span class="muted">${a.sla}</span></td><td><button class="link-button" data-action="approval-detail">处理 →</button></td></tr>`).join('')}</tbody></table></div></article>`;
   const users=`<article class="panel table-panel"><header class="panel-head"><div class="panel-title"><h2>用户账号</h2><p>账号生命周期、认证来源、角色与工作交接</p></div><button class="btn primary" data-action="new-user">新增用户</button></header><div class="table-wrap"><table class="data-table"><thead><tr><th>账号 / 姓名</th><th>工号</th><th>组织 / 仓库</th><th>岗位与角色</th><th>认证来源</th><th>最近登录</th><th>状态</th><th>操作</th></tr></thead><tbody>${sec.users.map(u=>`<tr><td><b>${u.account}</b><br><span class="muted">${u.name}</span></td><td>${u.employeeNo}</td><td>${u.organization}<br><span class="muted">${u.warehouse}</span></td><td>${u.position}<br><span class="muted">${u.roles.join('、')}</span></td><td>${u.source}</td><td>${u.lastLogin}</td><td>${badge(u.status,u.status==='启用'?'success':u.status==='锁定'?'danger':'muted')}</td><td>${u.id==='U-1002'?`<button class="link-button" data-action="deactivate-user" data-user-id="${u.id}">停用与交接</button>`:`<button class="link-button" data-action="user-detail" data-user-id="${u.id}">详情</button>`}</td></tr>`).join('')}</tbody></table></div></article>`;
   const roles=`<div class="role-summary"><article class="kpi-card"><div class="kpi-label">标准角色</div><div class="kpi-value">${sec.roles.length}</div><div class="kpi-meta"><b>覆盖业务、作业、平台与合规</b></div></article><article class="kpi-card success"><div class="kpi-label">已发布角色</div><div class="kpi-value">${sec.roles.filter(r=>r.status==='已发布').length}</div><div class="kpi-meta"><b>版本可追溯</b></div></article><article class="kpi-card warning"><div class="kpi-label">职责分离规则</div><div class="kpi-value">4</div><div class="kpi-meta"><b>申请、审批、执行相互制约</b></div></article></div><article class="panel table-panel"><header class="panel-head"><div class="panel-title"><h2>角色与权限矩阵</h2><p>覆盖角色职责、功能范围、关键操作、数据范围和限制条件</p></div><button class="btn primary" data-action="new-role">新建角色</button></header><div class="table-wrap"><table class="data-table role-table"><thead><tr><th>角色</th><th>职责</th><th>主要模块</th><th>数据范围</th><th>权限项</th><th>版本 / 状态</th><th>操作</th></tr></thead><tbody>${sec.roles.map(r=>`<tr><td><b>${r.name}</b><br><span class="mono muted">${r.id}</span></td><td class="wrap-cell">${r.duty||'自定义业务职责'}</td><td class="wrap-cell">${r.modules||'待配置'}</td><td class="wrap-cell">${r.scope}</td><td>${r.permissions}</td><td>${r.version} · ${badge(r.status,r.status==='已发布'?'success':'muted')}</td><td><button class="link-button" data-action="role-permission-detail" data-role-id="${r.id}">权限说明 →</button></td></tr>`).join('')}</tbody></table></div></article>`;
@@ -342,6 +356,8 @@ document.addEventListener('click', (event) => {
   else if (action === 'global-search') { openDrawer('全局搜索',`<div class="field"><label for="global-query">单据、任务、SKU、LPN 或运单</label><input id="global-query" type="search" autocomplete="off" placeholder="例如 SO20260703001"></div><div class="global-results" id="global-results">${searchResultsMarkup('')}</div>`,event.target); document.querySelector('#global-query').focus(); }
   else if (action === 'notifications') openDrawer('通知中心','<div class="exception-list"><div class="exception-item"><span class="exception-icon">!</span><span><h3>3 个高风险异常待处理</h3><p>拣选短拣、称重差异和接口失败</p></span><time>刚刚</time></div><div class="exception-item"><span class="exception-icon">✓</span><span><h3>波次释放完成</h3><p>WV20260703-021 已生成任务</p></span><time>8分钟前</time></div></div>',event.target);
   else if (action === 'account') openDrawer('账户与班次','<div class="detail-grid"><div class="detail-cell"><small>用户</small><b>林安</b></div><div class="detail-cell"><small>角色</small><b>仓库经理</b></div><div class="detail-cell"><small>当前班次</small><b>早班</b></div><div class="detail-cell"><small>数据范围</small><b>华东一号仓</b></div></div>',event.target);
+  else if (action === 'switch-role') openDrawer('切换演示角色',`<div class="role-switch-list">${state.security.roles.filter(role=>state.security.roleAccess[role.id]).map(role=>{const access=state.security.roleAccess[role.id]; return `<button class="role-switch-item ${role.id===state.security.currentRoleId?'active':''}" data-action="select-role" data-role-id="${role.id}"><span class="role-avatar">${access.avatar}</span><span><b>${role.name}</b><small>${access.scope}</small></span>${role.id===state.security.currentRoleId?badge('当前','success'):'<span>›</span>'}</button>`}).join('')}</div>`,event.target);
+  else if (action === 'select-role') { const roleId=event.target.closest('[data-role-id]').dataset.roleId; const result=switchRole(state,roleId); state=result.state; closeDrawer(); toast(result.message,result.ok,'角色已切换'); render(); }
   else if (action === 'switch-warehouse') openDrawer('切换运营仓','<div class="form-grid"><button class="btn primary" data-action="warehouse-current">华东一号仓 · 当前</button><button class="btn secondary" data-action="permission-denied">华南二号仓 · 无权限</button></div>',event.target);
   else if (action === 'deactivate-user') openDrawer('停用用户与工作交接','<form id="deactivate-user-form" class="form-grid"><div class="weight-result error">周宇仍有 3 个执行中/待领取任务，停用前必须交接。</div><div class="field"><label>目标用户</label><input value="zhou.yu · 周宇" readonly></div><div class="field"><label for="handoff-user">工作交接人 *</label><select id="handoff-user"><option value="">请选择交接人</option><option value="U-1001">林安 · 仓库经理</option><option value="U-1003">陈晨 · 拣货员</option></select></div><p class="field-error" id="handoff-error" hidden></p><button class="btn danger" type="submit">确认交接并停用</button></form>',event.target);
   else if (action === 'publish-role') { const result=publishRole(state,'R-WH-MANAGER'); state=result.state; toast(result.message,result.ok,'角色版本已发布'); render(); }
