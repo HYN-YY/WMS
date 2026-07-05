@@ -1,0 +1,4 @@
+interface:
+  display_name: "高保真交互原型"
+  short_description: "创建专业规范、视觉精致、响应完整且可验收的高保真交互原型"
+  default_prompt: "使用 $building-high-fidelity-prototypes 将我的产品需求制作成专业、符合规范且可交互的高保真原型。"

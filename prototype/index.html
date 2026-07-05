@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="企业级仓储管理系统高保真交互原型">
+  <title>NEXUS WMS · 智能仓储运营中心</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="主导航">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span><b>NEXUS</b><small>Warehouse OS</small></span>
+      </div>
+      <nav class="nav-list" aria-label="业务模块">
+        <button class="nav-item active" data-view="dashboard"><span class="nav-icon">⌂</span><span>运营驾驶舱</span></button>
+        <p class="nav-label">出库履约</p>
+        <button class="nav-item" data-view="orders"><span class="nav-icon">▤</span><span>出库订单</span><em>12</em></button>
+        <button class="nav-item" data-view="waves"><span class="nav-icon">≋</span><span>波次中心</span></button>
+        <button class="nav-item" data-view="tasks"><span class="nav-icon">✓</span><span>作业监控</span><em class="danger">3</em></button>
+        <button class="nav-item" data-view="shipping"><span class="nav-icon">⇥</span><span>复核发运</span></button>
+        <button class="nav-item" data-view="replenishment"><span class="nav-icon">↥</span><span>补货管理</span></button>
+        <button class="nav-item" data-view="exceptions"><span class="nav-icon">!</span><span>异常中心</span><em class="danger">17</em></button>
+        <button class="nav-item" data-view="count"><span class="nav-icon">◎</span><span>盘点中心</span></button>
+        <button class="nav-item" data-view="returns"><span class="nav-icon">↩</span><span>退货中心</span></button>
+        <p class="nav-label">仓储洞察</p>
+        <button class="nav-item twin-entry" data-view="twin"><span class="nav-icon">◇</span><span>数字孪生</span><span class="live-dot">LIVE</span></button>
+        <button class="nav-item" data-view="inventory"><span class="nav-icon">▦</span><span>库存中心</span></button>
+        <button class="nav-item" data-view="inbound"><span class="nav-icon">⇤</span><span>入库管理</span></button>
+        <button class="nav-item" data-view="reports"><span class="nav-icon">↗</span><span>分析报表</span></button>
+        <p class="nav-label">平台配置</p>
+        <button class="nav-item" data-view="master"><span class="nav-icon">⌘</span><span>主数据中心</span></button>
+        <button class="nav-item" data-view="rules"><span class="nav-icon">⌁</span><span>规则中心</span></button>
+        <button class="nav-item" data-view="integrations"><span class="nav-icon">⇄</span><span>集成平台</span></button>
+        <button class="nav-item" data-view="printing"><span class="nav-icon">▣</span><span>打印中心</span></button>
+        <button class="nav-item" data-view="admin"><span class="nav-icon">⚿</span><span>权限与审计</span></button>
+        <button class="nav-item" data-view="pda"><span class="nav-icon">▥</span><span>PDA 作业</span><span class="live-dot">DEMO</span></button>
+      </nav>
+      <div class="sidebar-foot">
+        <button class="warehouse-health" data-view="twin">
+          <span class="pulse"></span><span><b>华东一号仓</b><small>运行健康 · 99.96%</small></span><span>›</span>
+        </button>
+        <div class="user-card"><span class="avatar">林</span><span><b>林安</b><small>仓库经理</small></span><button data-action="account" aria-label="账户设置">•••</button></div>
+      </div>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar">
+        <button class="mobile-menu" id="mobile-menu" aria-label="打开导航" aria-expanded="false">☰</button>
+        <div class="warehouse-switcher"><span class="status-dot"></span><span><small>当前运营仓</small><b>华东一号仓 · WH-SH-01</b></span><button data-action="switch-warehouse" aria-label="切换仓库">⌄</button></div>
+        <div class="top-actions">
+          <span class="shift"><i></i>早班 · 06:00–14:00</span>
+          <button class="icon-button" data-action="global-search" aria-label="搜索">⌕</button>
+          <button class="icon-button notification" data-action="notifications" aria-label="通知，有3条未读">♢<i>3</i></button>
+          <span class="sync"><i></i>10:18:32 · 实时</span>
+        </div>
+      </header>
+
+      <main id="main-content" tabindex="-1">
+        <div id="view-root"></div>
+      </main>
+    </div>
+  </div>
+
+  <div class="scrim" id="scrim" hidden></div>
+  <aside class="drawer" id="drawer" aria-hidden="true" aria-labelledby="drawer-title">
+    <div class="drawer-head"><div><span class="eyebrow">详情与处置</span><h2 id="drawer-title">任务详情</h2></div><button class="icon-button" data-close-drawer aria-label="关闭详情">×</button></div>
+    <div id="drawer-body" class="drawer-body"></div>
+  </aside>
+
+  <div class="dialog-backdrop" id="dialog-backdrop" hidden>
+    <section class="dialog" id="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" tabindex="-1">
+      <div class="dialog-icon">⇥</div>
+      <h2 id="dialog-title">确认发运交接？</h2>
+      <p>确认后将扣减实物库存并向 OMS/TMS 回传包裹、运单和发运节点。此操作不可直接撤销。</p>
+      <div class="dialog-summary"><span>包裹 <b>LPN2607030098</b></span><span>运单 <b>SF314159265358</b></span></div>
+      <div class="dialog-actions"><button class="btn secondary" data-dialog-cancel>取消</button><button class="btn primary" data-dialog-confirm>确认发运</button></div>
+    </section>
+  </div>
+
+  <div class="toast-region" aria-live="polite" aria-atomic="true" id="toast-region"></div>
+  <script type="module" src="./app.js?v=6"></script>
+</body>
+</html>
