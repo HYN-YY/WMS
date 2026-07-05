@@ -185,3 +185,20 @@ test('new role is created as a draft without overwriting published roles', () =>
   assert.equal(result.state.security.roles[0].version, 'v3');
   assert.equal(result.state.security.audit.at(-1).event, 'role.created');
 });
+
+test('standard role catalog covers the complete warehouse and governance workflow', () => {
+  const state = createInitialState();
+  const roleIds = state.security.roles.map((role) => role.id);
+  assert.equal(state.security.roles.length, 13);
+  assert.deepEqual(roleIds, [
+    'R-WH-MANAGER', 'R-ORDER-OPS', 'R-INBOUND', 'R-QC', 'R-PUTAWAY',
+    'R-INVENTORY', 'R-REPLENISH', 'R-PICKER', 'R-PACKER', 'R-SHIPPER',
+    'R-SYSTEM-ADMIN', 'R-SECURITY-ADMIN', 'R-AUDITOR',
+  ]);
+  state.security.roles.forEach((role) => {
+    assert.ok(role.duty);
+    assert.ok(role.modules);
+    assert.ok(role.actions);
+    assert.ok(role.restrictions);
+  });
+});
