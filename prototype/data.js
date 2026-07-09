@@ -39,3 +39,60 @@ export const kpis = [
   { label: '待拣任务', value: '326', delta: '42 超时', helper: '未来 2 小时', tone: 'warning' },
   { label: '阻断异常', value: '17', delta: '3 高风险', helper: '需立即处理', tone: 'danger' },
 ];
+
+export const liteCatalog = {
+  warehouses: [
+    { id: '2034811041354936322', code: 'WH-WJ', name: '吴江仓', orderNum: 0, createBy: '18015578617', createTime: '2026-03-20 09:55:31', status: '启用', remark: '真实系统样例仓库' },
+    { id: '2034811081263738882', code: 'WH-SY', name: '沭阳仓', orderNum: 1, createBy: '18015578617', createTime: '2026-03-20 09:55:41', status: '启用', remark: '真实系统样例仓库' },
+  ],
+  items: [
+    { id: '2031608917141770242', sku: 'SKU-MOTOR-HUB', name: '轮毂电机', category: '电机', brand: '测试', unit: '台', barcode: '2031608917527646209', attrs: '无批次/无序列号', batch: false, serial: false, validDay: '-', status: '启用' },
+    { id: '2031640144200617985', sku: 'SKU-MOTOR-MID', name: '中置电机', category: '电机', brand: 'borui', unit: '台', barcode: '2031640144523579394', attrs: '无批次/无序列号', batch: false, serial: false, validDay: '-', status: '启用' },
+  ],
+  itemDictionaries: [
+    { id: '2031608669367455745', type: '商品分类', code: 'CAT-MOTOR', name: '电机', orderNum: 0, status: '启用' },
+    { id: '2031608697314103298', type: '商品分类', code: 'CAT-HUB', name: '轮毂', orderNum: 1, status: '启用' },
+    { id: '2033056487030460417', type: '商品品牌', code: 'BR-TEST', name: '测试', orderNum: 6, status: '启用' },
+    { id: '2033056448950374401', type: '商品品牌', code: 'BR-BORUI', name: 'borui', orderNum: 7, status: '启用' },
+    { id: '178056201030505', type: '计量单位', code: 'UNIT-GE', name: '个', orderNum: 1, status: '启用' },
+    { id: '178056201030506', type: '计量单位', code: 'UNIT-JIAN', name: '件', orderNum: 2, status: '启用' },
+    { id: '2032274866564038658', type: '商品属性', code: 'ATTR-COLOR', name: '颜色', orderNum: 10, options: '红/黄/蓝', status: '启用' },
+    { id: '2031612687695237121', type: '商品属性', code: 'ATTR-MEN-SIZE', name: '男士尺码', orderNum: 11, options: '37/38/39/40/41/42/43/44', status: '启用' },
+  ],
+  merchants: [
+    { id: '2032394108785512450', code: 'hengli', name: '恒立', type: '客户+供应商', contact: '-', settlement: '-', status: '启用' },
+    { id: '2032394193359458306', code: 'alibaba', name: 'alibaba', type: '客户+供应商', contact: '-', settlement: '-', status: '启用' },
+  ],
+  people: [
+    { id: '2001917843782656001', account: '18015578617', name: '赵大哥', role: 'tenant_admin', warehouseType: '全部仓库', loginDate: '2026-06-15 18:16:25', status: '启用' },
+    { id: '2030811940607000578', account: '16666666666', name: '测试1', role: 'tenant_sub', warehouseType: '全部仓库', loginDate: '2026-03-19 17:10:16', status: '启用' },
+    { id: '2034562888525541378', account: 'wms', name: '若依', role: 'tenant_sub', warehouseType: '全部仓库', loginDate: '2026-07-09 13:52:40', status: '启用' },
+  ],
+  operationTypes: [
+    { id: 'OP-001', code: 'receipt', name: '入库', direction: '入库', affects: '增加库存', audit: '入库审核', status: '启用' },
+    { id: 'OP-002', code: 'shipment', name: '出库', direction: '出库', affects: '扣减库存', audit: '出库审核', status: '启用' },
+    { id: 'OP-003', code: 'movement', name: '移库', direction: '移动', affects: '迁移仓库/库位余额', audit: '移库审核', status: '启用' },
+    { id: 'OP-004', code: 'check', name: '盘库', direction: '调整', affects: '生成盘盈盘亏', audit: '盘库审核', status: '启用' },
+  ],
+  documentTemplates: [
+    { id: 'REC-260703-001', name: '采购入库单', type: '入库', counterparty: '星云智能科技', quantity: 48, amount: '¥32,640', status: '待审核' },
+    { id: 'SHP-260703-018', name: '销售出库单', type: '出库', counterparty: '华东商贸', quantity: 96, amount: '¥68,800', status: '已审核' },
+    { id: 'MOV-260703-006', name: '库内移库单', type: '移库', counterparty: '存储区A → 拣选区B', quantity: 24, amount: '-', status: '暂存' },
+    { id: 'CHK-260703-012', name: '盘库单', type: '盘库', counterparty: 'A-01-03-02', quantity: 128, amount: '-', status: '待审核' },
+  ],
+  inventoryWarnings: [
+    { id: '2035716219550162948', object: '轮毂电机', type: 'SKU 预警', threshold: '100.00 - 500.00', current: '128.00', level: '正常' },
+    { id: '2035716219550162947', object: '中置电机', type: 'SKU 预警', threshold: '100.00 - 500.00', current: '46.00', level: '预警' },
+    { id: '2035716458428358660', object: '吴江仓 / 轮毂电机', type: '仓库预警', threshold: '10.00 - 100.00', current: '8.00', level: '预警' },
+  ],
+  blockedSystemModules: [
+    { module: '系统参数', api: '/system/config/list', result: '403 无访问权限', handling: '页面展示但写入按钮禁用' },
+    { module: '系统字典', api: '/system/dict/data/list', result: '403 无访问权限', handling: '仅展示授权说明' },
+    { module: 'OSS 文件', api: '/system/oss/list', result: '403 无访问权限', handling: '保留上传入口和权限提示' },
+  ],
+  salesStats: [
+    { channel: '天猫旗舰店', orders: 2860, quantity: 9320, amount: '¥1,286,400', growth: '+12.8%' },
+    { channel: '京东自营', orders: 1940, quantity: 6840, amount: '¥946,200', growth: '+8.4%' },
+    { channel: '经销商 B2B', orders: 318, quantity: 12480, amount: '¥2,340,800', growth: '+21.6%' },
+  ],
+};

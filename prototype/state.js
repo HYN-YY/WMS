@@ -1,4 +1,4 @@
-import { baseTasks, demoOrders, zones } from './data.js?v=6';
+import { baseTasks, demoOrders, zones, liteCatalog } from './data.js?v=11';
 
 // Demo state is deliberately JSON-safe; this keeps the prototype compatible with Node 16.
 const copy = (value) => JSON.parse(JSON.stringify(value));
@@ -40,22 +40,32 @@ export function createInitialState() {
     ],
     integrationQueue: [{ id: 'MSG-260703-0098', system: 'TMS', event: 'shipment_confirmed', retries: 3, status: '人工处理' }],
     pda: { online: false, pendingOperations: ['OP-1001', 'OP-1002'], syncedOperations: [] },
+    lite: {
+      activeModule: 'warehouses',
+      dirtyDraft: null,
+      pendingAudit: [],
+      auditTrail: [
+        { time: '13:52:40', actor: 'wms', action: '登录系统', target: 'Tenant-Token / PC' },
+        { time: '13:53:12', actor: 'wms', action: '查询列表', target: '仓库、商品、往来单位、人员、预警设置' },
+      ],
+      catalogs: copy(liteCatalog),
+    },
     security: {
       currentRoleId: 'R-WH-MANAGER',
       roleAccess: {
-        'R-WH-MANAGER': { user:'林安', avatar:'林', scope:'华东一号仓 · 全部货主', writable:true, views:['dashboard','twin','orders','waves','tasks','shipping','replenishment','exceptions','count','returns','inventory','inbound','reports','printing','pda','admin'] },
+        'R-WH-MANAGER': { user:'林安', avatar:'林', scope:'华东一号仓 · 全部货主', writable:true, views:['dashboard','twin','orders','waves','tasks','shipping','replenishment','exceptions','count','returns','inventory','inbound','reports','lite','printing','pda','admin'] },
         'R-ORDER-OPS': { user:'宋妍', avatar:'宋', scope:'华东一号仓 · 授权货主与渠道', writable:true, views:['dashboard','orders','waves','tasks','exceptions','reports'] },
         'R-INBOUND': { user:'王敏', avatar:'王', scope:'华东一号仓 · 本人入库任务', writable:true, views:['inbound','tasks','printing','pda','exceptions'] },
         'R-QC': { user:'许洁', avatar:'许', scope:'华东一号仓 · 本人质检任务', writable:true, views:['inbound','returns','exceptions','pda'] },
         'R-PUTAWAY': { user:'李强', avatar:'李', scope:'华东一号仓 · 分配库区与本人任务', writable:true, views:['inbound','inventory','tasks','pda','exceptions'] },
-        'R-INVENTORY': { user:'赵凯', avatar:'赵', scope:'华东一号仓 · 3 个授权货主', writable:true, views:['dashboard','inventory','count','replenishment','returns','reports','exceptions','pda'] },
+        'R-INVENTORY': { user:'赵凯', avatar:'赵', scope:'华东一号仓 · 3 个授权货主', writable:true, views:['dashboard','inventory','count','replenishment','returns','reports','lite','exceptions','pda'] },
         'R-REPLENISH': { user:'韩东', avatar:'韩', scope:'华东一号仓 · 本人补货任务', writable:true, views:['replenishment','inventory','tasks','pda','exceptions'] },
         'R-PICKER': { user:'周宇', avatar:'周', scope:'华东一号仓 · 本人拣货任务', writable:true, views:['tasks','pda','exceptions'] },
         'R-PACKER': { user:'陈曦', avatar:'陈', scope:'华东一号仓 · 复核工作站 PK-06', writable:true, views:['shipping','printing','exceptions','pda'] },
         'R-SHIPPER': { user:'顾航', avatar:'顾', scope:'华东一号仓 · 发运月台 D 区', writable:true, views:['shipping','printing','exceptions'] },
-        'R-SYSTEM-ADMIN': { user:'沈宁', avatar:'沈', scope:'全部仓 · 系统配置数据', writable:true, views:['master','rules','integrations','printing','admin'] },
+        'R-SYSTEM-ADMIN': { user:'沈宁', avatar:'沈', scope:'全部仓 · 系统配置数据', writable:true, views:['lite','master','rules','integrations','printing','admin'] },
         'R-SECURITY-ADMIN': { user:'唐静', avatar:'唐', scope:'全部仓 · 安全配置数据', writable:true, views:['admin','reports'] },
-        'R-AUDITOR': { user:'陆清', avatar:'陆', scope:'全部仓 · 脱敏只读', writable:false, views:['dashboard','orders','tasks','shipping','exceptions','twin','inventory','inbound','reports','master','rules','integrations','printing','admin'] },
+        'R-AUDITOR': { user:'陆清', avatar:'陆', scope:'全部仓 · 脱敏只读', writable:false, views:['dashboard','orders','tasks','shipping','exceptions','twin','inventory','inbound','reports','lite','master','rules','integrations','printing','admin'] },
       },
       users: [
         { id:'U-1001', account:'lin.an', name:'林安', employeeNo:'WH0018', organization:'华东运营中心', warehouse:'华东一号仓', position:'仓库经理', roles:['仓库经理'], status:'启用', source:'SSO', lastLogin:'2026-07-03 09:58', unfinished:0 },
@@ -294,4 +304,141 @@ export function switchRole(current, roleId) {
   const state=copy(current); state.security.currentRoleId=roleId;
   if(!access.views.includes(state.activeView)) state.activeView=access.views[0];
   return result(state,true,`已切换为${role.name}，当前范围：${access.scope}`);
+}
+
+const moduleMap = {
+  warehouses: 'warehouses',
+  items: 'items',
+  dictionaries: 'itemDictionaries',
+  merchants: 'merchants',
+  people: 'people',
+  operationTypes: 'operationTypes',
+  warnings: 'inventoryWarnings',
+  documents: 'documentTemplates',
+};
+
+function liteRows(state, module) {
+  const key = moduleMap[module];
+  return key ? state.lite.catalogs[key] : [];
+}
+
+export function saveLiteRecord(current, { module, id, values = {} }) {
+  const rows = liteRows(current, module);
+  if (!rows) return result(current, false, '未知模块');
+  const state = copy(current);
+  const target = liteRows(state, module);
+  const index = target.findIndex((item) => item.id === id);
+  if (index >= 0) {
+    target[index] = { ...target[index], ...values, status: values.status || target[index].status };
+    state.lite.auditTrail.push({ time: '13:58:20', actor: 'wms', action: '编辑', target: `${module}/${id}` });
+    return result(state, true, '已保存修改，列表数据同步更新');
+  }
+  const defaults = {
+    warehouses: { orderNum: target.length, createBy: 'wms', createTime: '2026-07-09 14:10:00' },
+    items: { category: '电机', unit: '件', brand: '测试', batch: false, serial: false },
+    dictionaries: { type: '商品分类', orderNum: target.length + 1, options: '-' },
+    merchants: { type: '客户+供应商', contact: '-', settlement: '-' },
+    people: { role: 'tenant_sub', warehouseType: '全部仓库', loginDate: '尚未登录' },
+    operationTypes: { direction: '入库', affects: '增加库存', audit: '待审核' },
+  }[module] || {};
+  const next = { id: `${module.toUpperCase()}-${target.length + 1}`, status: '暂存', ...defaults, ...values };
+  target.unshift(next);
+  state.lite.dirtyDraft = next.id;
+  state.lite.auditTrail.push({ time: '13:58:20', actor: 'wms', action: '新增暂存', target: `${module}/${next.id}` });
+  return result(state, true, '已新增暂存记录，可继续提交审核');
+}
+
+export function submitLiteAudit(current, { module, id }) {
+  const rows = liteRows(current, module);
+  const item = rows.find((row) => row.id === id);
+  if (!item) return result(current, false, '未找到需要审核的记录');
+  const state = copy(current);
+  state.lite.pendingAudit.push({ id: `AUD-LITE-${state.lite.pendingAudit.length + 1}`, module, recordId: id, name: item.name || item.account || item.code, status: '待审核' });
+  state.lite.auditTrail.push({ time: '14:00:06', actor: 'wms', action: '提交审核', target: `${module}/${id}` });
+  return result(state, true, '已提交审核，记录进入待审核队列');
+}
+
+export function approveLiteAudit(current, auditId) {
+  const index = current.lite.pendingAudit.findIndex((item) => item.id === auditId);
+  if (index < 0) return result(current, false, '审批单不存在');
+  const state = copy(current);
+  const audit = state.lite.pendingAudit[index];
+  const target = liteRows(state, audit.module).find((item) => item.id === audit.recordId);
+  if (target) target.status = '启用';
+  state.lite.pendingAudit[index].status = '已审核';
+  state.lite.auditTrail.push({ time: '14:02:18', actor: 'wms', action: '审核通过', target: `${audit.module}/${audit.recordId}` });
+  return result(state, true, '审核通过，记录已启用');
+}
+
+export function toggleLiteStatus(current, { module, id }) {
+  const state = copy(current);
+  const item = liteRows(state, module).find((row) => row.id === id);
+  if (!item) return result(current, false, '未找到记录');
+  item.status = item.status === '启用' ? '停用' : '启用';
+  state.lite.auditTrail.push({ time: '14:03:42', actor: 'wms', action: item.status === '启用' ? '启用' : '停用', target: `${module}/${id}` });
+  return result(state, true, `记录已${item.status}`);
+}
+
+export function deleteLiteRecord(current, { module, id }) {
+  const rows = liteRows(current, module);
+  const item = rows.find((row) => row.id === id);
+  if (!item) return result(current, false, '未找到记录');
+  if (item.status === '启用') return result(current, false, '启用状态不能直接删除，请先停用');
+  const state = copy(current);
+  const target = liteRows(state, module);
+  target.splice(target.findIndex((row) => row.id === id), 1);
+  state.lite.auditTrail.push({ time: '14:04:10', actor: 'wms', action: '删除', target: `${module}/${id}` });
+  return result(state, true, '记录已删除');
+}
+
+export function sortLiteDictionary(current, direction = 'down') {
+  const state = copy(current);
+  const rows = state.lite.catalogs.itemDictionaries;
+  if (rows.length > 1) {
+    const first = rows.shift();
+    if (direction === 'down') rows.push(first);
+    else rows.unshift(rows.pop());
+    rows.forEach((item, index) => { item.orderNum = index + 1; });
+  }
+  state.lite.auditTrail.push({ time: '14:05:26', actor: 'wms', action: '排序保存', target: '品牌/分类/单位/属性' });
+  return result(state, true, '排序已保存，orderNum 已重排');
+}
+
+export function updateLiteAlert(current, { id, minQuantity, maxQuantity }) {
+  const state = copy(current);
+  const item = state.lite.catalogs.inventoryWarnings.find((warning) => warning.id === id);
+  if (!item) return result(current, false, '未找到预警设置');
+  item.threshold = `${Number(minQuantity).toFixed(2)} - ${Number(maxQuantity).toFixed(2)}`;
+  item.level = Number(minQuantity) > Number(maxQuantity) ? '异常' : item.level;
+  state.lite.auditTrail.push({ time: '14:06:34', actor: 'wms', action: '更新预警阈值', target: item.object });
+  return result(state, true, '预警阈值已更新');
+}
+
+export function resetTenantUserPassword(current, userId) {
+  const user = current.lite.catalogs.people.find((item) => item.id === userId);
+  if (!user) return result(current, false, '未找到人员账号');
+  const state = copy(current);
+  state.lite.auditTrail.push({ time: '14:07:55', actor: 'wms', action: '重置密码', target: user.account });
+  return result(state, true, `已为 ${user.name} 生成临时密码并要求下次登录修改`);
+}
+
+export function reviewLiteDocument(current, { id, decision, reason = '' }) {
+  const document = current.lite.catalogs.documentTemplates.find((item) => item.id === id);
+  if (!document) return result(current, false, '未找到业务单据');
+  if (document.status === '已审核' && decision === 'approve') return result(current, false, '单据已审核，请勿重复审核');
+  if (document.status === '已驳回' && decision === 'reject') return result(current, false, '单据已驳回，请勿重复驳回');
+  const state = copy(current);
+  const target = state.lite.catalogs.documentTemplates.find((item) => item.id === id);
+  target.status = decision === 'approve' ? '已审核' : '已驳回';
+  target.reviewReason = reason || (decision === 'approve' ? '数量、往来单位和库存影响校验通过' : '业务信息不完整');
+  state.lite.auditTrail.push({ time: '14:09:18', actor: 'wms', action: decision === 'approve' ? '单据审核通过' : '单据驳回', target: `${target.name}/${target.id}` });
+  return result(state, true, decision === 'approve' ? `${target.name} 已审核，库存影响进入事务队列` : `${target.name} 已驳回，等待经办人修正`);
+}
+
+export function createLitePrintJob(current, { templateId, sourceId }) {
+  const templateNames = { 'TPL-REC': '入库单模板', 'TPL-SHP': '出库单模板', 'TPL-MOV': '移库单模板', 'TPL-CHK': '盘库单模板' };
+  const state = copy(current);
+  const jobId = `PR-LITE-${state.lite.auditTrail.length + 1}`;
+  state.lite.auditTrail.push({ time: '14:11:02', actor: 'wms', action: '生成打印任务', target: `${templateNames[templateId] || templateId}/${sourceId || '手工预览'}` });
+  return result(state, true, `打印任务 ${jobId} 已生成，模板：${templateNames[templateId] || templateId}`);
 }

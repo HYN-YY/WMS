@@ -1,12 +1,14 @@
-import { kpis } from './data.js?v=7';
+import { kpis, liteCatalog } from './data.js?v=11';
 import {
   createInitialState, allocateOrders, releaseWave, resolveShortPick,
   setPackageWeight, confirmShipment, twinSummary, receiveInbound,
   freezeInventory, operationsSummary,
   submitCountVariance, inspectReturn, publishRule, retryIntegration, syncPdaQueue,
   deactivateUser, publishRole, simulatePermission, createUser, createRole, switchRole,
-} from './state.js?v=7';
-import { createUiState, paginateRows, selectTab, selectTwinLayer, visibleTwinParts, searchWorkspace } from './ui-state.js?v=7';
+  saveLiteRecord, submitLiteAudit, approveLiteAudit, toggleLiteStatus, deleteLiteRecord,
+  sortLiteDictionary, updateLiteAlert, resetTenantUserPassword, reviewLiteDocument, createLitePrintJob,
+} from './state.js?v=11';
+import { createUiState, paginateRows, selectTab, selectTwinLayer, visibleTwinParts, searchWorkspace } from './ui-state.js?v=11';
 
 let state = createInitialState();
 let ui = createUiState();
@@ -30,6 +32,7 @@ const pageHead = (eyebrow, title, desc, actions = '') => `<header class="page-he
 const rangeRows = (base, total, factory) => Array.from({length:total},(_,index)=>index<base.length?base[index]:factory(index,base[index%base.length]));
 const paginationControls = (view, meta) => `<footer class="pagination"><span>共 ${meta.total} 条 · 当前展示 ${meta.from}–${meta.to}</span><div><button data-page-view="${view}" data-page="${meta.page-1}" ${meta.page===1?'disabled':''} aria-label="上一页">‹</button>${Array.from({length:meta.pageCount},(_,i)=>`<button data-page-view="${view}" data-page="${i+1}" class="${meta.page===i+1?'active':''}" aria-label="第 ${i+1} 页">${i+1}</button>`).join('')}<button data-page-view="${view}" data-page="${meta.page+1}" ${meta.page===meta.pageCount?'disabled':''} aria-label="下一页">›</button></div></footer>`;
 const tabButton = (view,id,label) => `<button data-tab-view="${view}" data-tab="${id}" class="${ui.tabs[view]===id?'active':''}" aria-pressed="${ui.tabs[view]===id}">${label}</button>`;
+const liteTable = (headers, rows, action = '详情') => `<div class="table-wrap"><table class="data-table"><thead><tr>${headers.map(header=>`<th>${header}</th>`).join('')}<th>操作</th></tr></thead><tbody>${rows.map(row=>`<tr>${row.map((cell,index)=>`<td data-label="${headers[index]}">${index===headers.length-1?badge(cell,cell==='启用'||cell==='正常'||cell==='已审核'?'success':cell==='锁定'||cell==='预警'?'danger':cell==='限制'||cell==='待审核'?'warning':'muted'):cell}</td>`).join('')}<td><button class="link-button" data-action="lite-detail">${action} →</button></td></tr>`).join('')}</tbody></table></div>`;
 const searchDocuments = () => [
   ...state.orders.map(item=>({type:'出库订单',id:item.id,title:`${item.channel} · ${item.city}`,meta:`${item.status} ${item.risk}`,view:'orders'})),
   ...state.inventory.map(item=>({type:'库存',id:item.sku,title:item.product,meta:`${item.location} ${item.batch}`,view:'inventory'})),
@@ -38,6 +41,8 @@ const searchDocuments = () => [
   {type:'波次',id:state.wave.id,title:'早班出库波次',meta:state.wave.status,view:'waves'},
   {type:'异常',id:state.shortPick.id,title:state.shortPick.product,meta:state.shortPick.status,view:'exceptions'},
   ...state.integrationQueue.map(item=>({type:'接口消息',id:item.id,title:`${item.system} · ${item.event}`,meta:item.status,view:'integrations'})),
+  ...liteCatalog.items.map(item=>({type:'商品主数据',id:item.sku,title:item.name,meta:item.category,view:'master'})),
+  ...liteCatalog.documentTemplates.map(item=>({type:item.name,id:item.id,title:item.counterparty,meta:item.status,view:'inbound'})),
 ].filter(item=>canView(item.view));
 const searchResultsMarkup = (query) => { const results=searchWorkspace(searchDocuments(),query); if(!query.trim()) return '<div class="search-empty">输入关键词，支持模糊匹配</div>'; if(!results.length) return '<div class="search-empty">未找到匹配结果，请尝试订单号、SKU 或任务号</div>'; return results.map(item=>`<button class="search-result" data-search-view="${item.view}"><span class="badge info">${item.type}</span><span><b>${item.id}</b><small>${item.title} · ${item.meta||''}</small></span><span>→</span></button>`).join(''); };
 
@@ -60,7 +65,7 @@ function setView(view) {
 }
 
 function render() {
-  const views = { dashboard: dashboardView, orders: ordersView, waves: wavesView, tasks: tasksView, shipping: shippingView, exceptions: exceptionsView, twin: twinView, inventory: inventoryView, inbound: inboundView, reports: reportsView, replenishment: replenishmentView, count: countView, returns: returnsView, master: masterView, rules: rulesView, integrations: integrationsView, printing: printingView, admin: adminView, pda: pdaView };
+  const views = { dashboard: dashboardView, orders: ordersView, waves: wavesView, tasks: tasksView, shipping: shippingView, exceptions: exceptionsView, twin: twinView, inventory: inventoryView, inbound: inboundView, reports: reportsView, replenishment: replenishmentView, count: countView, returns: returnsView, master: masterView, rules: rulesView, integrations: integrationsView, printing: printingView, admin: adminView, pda: pdaView, lite: liteWmsView };
   if (!canView(state.activeView)) state.activeView=roleAccess().views[0];
   root.innerHTML = (views[state.activeView] || futureView)(state.activeView);
   document.querySelectorAll('.nav-item[data-view]').forEach(item=>{ item.hidden=!canView(item.dataset.view); item.classList.toggle('active',item.dataset.view===state.activeView); });
@@ -172,21 +177,34 @@ function inventoryView() {
   const total = state.inventory.reduce((sum,item)=>sum+item.onHand,0);
   const available = state.inventory.reduce((sum,item)=>sum+item.available,0);
   const meta=paginateRows(state.inventory,ui.pages.inventory,ui.pageSize); ui.pages.inventory=meta.page;
+  const warningRows = liteCatalog.inventoryWarnings.map(item=>[item.object,item.type,item.threshold,item.current,item.level]);
+  const statsRows = [
+    ['当前在库', total.toLocaleString(), '全部库区', '实时事务汇总', '正常'],
+    ['可用库存', available.toLocaleString(), '可参与分配', `${((available/total)*100).toFixed(1)}%`, '正常'],
+    ['已分配库存', state.inventory.reduce((s,i)=>s+i.allocated,0).toLocaleString(), '锁定至订单', '待出库扣减', '正常'],
+    ['冻结库存', state.inventory.reduce((s,i)=>s+i.frozen,0).toLocaleString(), '质量/盘点/异常', `${state.inventoryAudit.length} 条事务`, state.inventoryAudit.length?'预警':'正常'],
+  ];
+  const ledger = `<article class="panel table-panel"><div class="table-wrap"><table class="data-table"><thead><tr><th>SKU / 商品</th><th>库位</th><th>批次</th><th>在库</th><th>已分配</th><th>可用</th><th>冻结</th><th>库存状态</th><th>操作</th></tr></thead><tbody>${meta.items.map(i=>`<tr><td data-label="商品"><b class="mono">${i.sku}</b><br><span class="muted">${i.product}</span></td><td data-label="库位" class="mono">${i.location}</td><td data-label="批次" class="mono">${i.batch}</td><td data-label="在库"><b>${i.onHand}</b></td><td data-label="已分配">${i.allocated}</td><td data-label="可用"><b style="color:#047857">${i.available}</b></td><td data-label="冻结">${i.frozen}</td><td data-label="状态">${badge(i.frozen?'部分冻结':'可用',i.frozen?'warning':'success')}</td><td data-label="操作"><button class="link-button" data-inventory-detail="${i.sku}">查看台账 →</button></td></tr>`).join('')}</tbody></table></div>${paginationControls('inventory',meta)}</article>`;
+  const warnings = `<article class="panel table-panel">${liteTable(['对象','预警类型','阈值','当前值','等级'], warningRows, '处理')}</article>`;
+  const stats = `<article class="panel table-panel">${liteTable(['统计项','数量','口径','说明','状态'], statsRows, '查看')}</article>`;
   return `<section class="page">${pageHead('INVENTORY LEDGER', '库存中心', '以库位、批次和库存状态为主线，统一查看可用、占用与冻结余额', '<button class="btn secondary" data-action="inventory-reconcile">库存对账</button><button class="btn primary" data-action="open-freeze">冻结库存</button>')}
     <div class="kpi-grid"><article class="kpi-card"><div class="kpi-label">当前在库</div><div class="kpi-value">${total.toLocaleString()}</div><div class="kpi-meta"><b>3 个 SKU</b><span>当前筛选范围</span></div></article><article class="kpi-card success"><div class="kpi-label">可用库存</div><div class="kpi-value">${available.toLocaleString()}</div><div class="kpi-meta"><b>${((available/total)*100).toFixed(1)}%</b><span>可参与分配</span></div></article><article class="kpi-card warning"><div class="kpi-label">已分配</div><div class="kpi-value">${state.inventory.reduce((s,i)=>s+i.allocated,0).toLocaleString()}</div><div class="kpi-meta"><b>待出库</b><span>锁定至订单</span></div></article><article class="kpi-card danger"><div class="kpi-label">冻结库存</div><div class="kpi-value">${state.inventory.reduce((s,i)=>s+i.frozen,0)}</div><div class="kpi-meta"><b>${state.inventoryAudit.length} 条变更</b><span>全程可审计</span></div></article></div>
-    <div class="toolbar"><label class="search"><span>⌕</span><input id="inventory-search" type="search" placeholder="搜索 SKU、商品、库位或批次" aria-label="搜索库存"></label><select class="select" aria-label="库存状态"><option>全部库存状态</option><option>可用</option><option>已分配</option><option>冻结</option></select><select class="select" aria-label="库区"><option>全部库区</option><option>存储区 A</option><option>存储区 B</option></select></div>
-    <article class="panel table-panel"><div class="table-wrap"><table class="data-table"><thead><tr><th>SKU / 商品</th><th>库位</th><th>批次</th><th>在库</th><th>已分配</th><th>可用</th><th>冻结</th><th>库存状态</th><th>操作</th></tr></thead><tbody>${meta.items.map(i=>`<tr><td data-label="商品"><b class="mono">${i.sku}</b><br><span class="muted">${i.product}</span></td><td data-label="库位" class="mono">${i.location}</td><td data-label="批次" class="mono">${i.batch}</td><td data-label="在库"><b>${i.onHand}</b></td><td data-label="已分配">${i.allocated}</td><td data-label="可用"><b style="color:#047857">${i.available}</b></td><td data-label="冻结">${i.frozen}</td><td data-label="状态">${badge(i.frozen?'部分冻结':'可用',i.frozen?'warning':'success')}</td><td data-label="操作"><button class="link-button" data-inventory-detail="${i.sku}">查看台账 →</button></td></tr>`).join('')}</tbody></table></div>${paginationControls('inventory',meta)}</article>
+    <div class="toolbar"><div class="segmented">${tabButton('inventory','ledger','库存记录')}${tabButton('inventory','warnings','库存/过期预警')}${tabButton('inventory','stats','库存统计')}</div><label class="search"><span>⌕</span><input id="inventory-search" type="search" placeholder="搜索 SKU、商品、库位、批次或预警对象" aria-label="搜索库存"></label><select class="select" aria-label="库存状态"><option>全部库存状态</option><option>可用</option><option>已分配</option><option>冻结</option></select></div>
+    ${ui.tabs.inventory==='warnings'?warnings:ui.tabs.inventory==='stats'?stats:ledger}
     ${state.inventoryAudit.length?`<article class="panel" style="margin-top:16px"><header class="panel-head"><div class="panel-title"><h2>最近库存事务</h2><p>受控操作与审计证据</p></div></header><div class="panel-body timeline">${state.inventoryAudit.map(a=>`<div class="timeline-item"><b>${a.sku} 冻结 ${a.quantity} 件 · ${a.reason}</b><small>${a.time} · ${a.actor}</small></div>`).join('')}</div></article>`:''}
   </section>`;
 }
 
 function inboundView() {
   const inbound=state.inbound;
+  const documents = liteCatalog.documentTemplates.map(item=>[item.id,item.name,item.type,item.counterparty,item.quantity,item.amount,item.status]);
   return `<section class="page">${pageHead('INBOUND RECEIVING', '入库管理', '从 ASN 预约、收货差异到质检与上架任务的可追溯闭环', '<button class="btn secondary" data-action="scan-asn">模拟扫描 ASN</button>')}
     <div class="workflow-strip"><div class="workflow-step ${inbound.status==='待收货'?'current':'done'}"><i>${inbound.status==='待收货'?'1':'✓'}</i>预约到仓</div><div class="workflow-step ${inbound.status==='待收货'?'':'done'}"><i>${inbound.status==='待收货'?'2':'✓'}</i>收货确认</div><div class="workflow-step ${inbound.status==='待上架'?'current':''}"><i>3</i>质检判定</div><div class="workflow-step"><i>4</i>上架任务</div><div class="workflow-step"><i>5</i>入库完成</div></div>
     <div class="split-layout"><article class="panel"><header class="panel-head"><div class="panel-title"><h2>今日预约到货</h2><p>月台 D-02 · 预计 10:30 到仓</p></div>${badge(inbound.status)}</header><div class="panel-body"><div class="detail-grid"><div class="detail-cell"><small>ASN 单号</small><b class="mono">${inbound.asnId}</b></div><div class="detail-cell"><small>供应商</small><b>${inbound.supplier}</b></div><div class="detail-cell"><small>采购单</small><b class="mono">PO260701-118</b></div><div class="detail-cell"><small>承运车辆</small><b>沪A·8W21Q</b></div></div><div class="verify-list" style="margin-top:16px"><div class="verify-row"><span><i>✓</i>ASN 与采购单匹配</span><b>已校验</b></div><div class="verify-row"><span><i>✓</i>商品与包装规则</span><b>2 箱 / ${inbound.expected} 件</b></div><div class="verify-row"><span><i>${inbound.received?'✓':'⌗'}</i>实收数量</span><b>${inbound.received} / ${inbound.expected}</b></div></div></div></article>
       <aside class="panel summary-card"><h2>收货工作台</h2><form id="inbound-form" class="form-grid" novalidate><div class="field"><label for="inbound-asn">ASN 单号</label><input id="inbound-asn" value="${inbound.asnId}" readonly></div><div class="field"><label for="received-quantity">实收数量 *</label><input id="received-quantity" type="number" min="1" max="${inbound.expected}" value="${inbound.received||inbound.expected}"><p class="field-error" id="inbound-error" hidden></p></div><div class="field"><label for="quality-result">质检策略</label><select id="quality-result"><option>免检 · 直接生成上架任务</option><option>抽检 · 10%</option><option>全检</option></select></div><button class="btn primary" type="submit" ${inbound.status==='待上架'?'disabled':''}>${inbound.status==='待上架'?'收货已确认':'确认收货并生成上架'}</button></form>${inbound.putawayTasks?`<div class="weight-result" style="margin-top:14px">已生成 ${inbound.putawayTasks} 个上架任务，推荐目标库区：存储区 A。</div>`:''}</aside>
-    </div></section>`;
+    </div>
+    <article class="panel table-panel" style="margin-top:16px"><header class="panel-head"><div class="panel-title"><h2>Lite 单据工作台</h2><p>覆盖访问系统中的入库单、出库单、移库单、盘库单编辑与审核</p></div><button class="btn secondary" data-action="new-document">新增单据</button></header>${liteTable(['单据号','单据名称','类型','往来单位/库区','数量','金额','状态'], documents, '编辑')}</article>
+  </section>`;
 }
 
 function reportsView() {
@@ -195,7 +213,8 @@ function reportsView() {
     <div class="kpi-grid"><article class="kpi-card"><div class="kpi-label">今日收货</div><div class="kpi-value">${s.receivedToday.toLocaleString()}</div><div class="kpi-meta"><b>+8.2%</b><span>件</span></div></article><article class="kpi-card success"><div class="kpi-label">出库完成率</div><div class="kpi-value">${s.outboundCompletion}%</div><div class="kpi-meta"><b>目标 98.5%</b></div></article><article class="kpi-card success"><div class="kpi-label">库存准确率</div><div class="kpi-value">${s.inventoryAccuracy}%</div><div class="kpi-meta"><b>目标 99.9%</b></div></article><article class="kpi-card warning"><div class="kpi-label">任务效率指数</div><div class="kpi-value">${s.taskEfficiency}</div><div class="kpi-meta"><b>+2.1</b><span>较昨日</span></div></article></div>
     <div class="dashboard-grid"><article class="panel"><header class="panel-head"><div class="panel-title"><h2>仓内吞吐趋势</h2><p>收货、上架、拣货与发运每小时完成量</p></div><div>${badge('实时','success')}</div></header><div class="panel-body chart-wrap"><svg viewBox="0 0 720 220" role="img" aria-label="仓内吞吐趋势"><g class="chart-grid"><line x1="42" y1="20" x2="700" y2="20"/><line x1="42" y1="70" x2="700" y2="70"/><line x1="42" y1="120" x2="700" y2="120"/><line x1="42" y1="170" x2="700" y2="170"/></g><path d="M42 155 C130 135 165 145 230 112 S360 88 420 78 S570 55 700 42" class="chart-line"/><path d="M42 170 C130 160 180 130 240 138 S350 118 430 105 S560 92 700 72" fill="none" stroke="#10b981" stroke-width="2"/><path d="M42 182 C120 170 190 168 250 150 S370 142 440 120 S590 110 700 96" fill="none" stroke="#f59e0b" stroke-width="2"/><g class="chart-label"><text x="42" y="208">06:00</text><text x="200" y="208">08:00</text><text x="365" y="208">10:00</text><text x="530" y="208">12:00</text><text x="675" y="208">14:00</text></g></svg></div></article>
       <article class="panel"><header class="panel-head"><div class="panel-title"><h2>流程健康评分</h2><p>结合 SLA、差异与积压</p></div></header><div class="panel-body workload-list">${[['收货与上架',92,''],['库存准确性',99,''],['订单分配',96,''],['拣货执行',88,'warning'],['复核发运',97,'']].map(x=>`<div class="workload-row ${x[2]}"><span>${x[0]}</span><div class="progress"><i style="width:${x[1]}%"></i></div><b>${x[1]}</b></div>`).join('')}<button class="btn secondary" data-view="twin" style="margin-top:10px">在数字孪生中定位瓶颈</button></div></article></div>
-    <div class="mini-grid"><article class="panel"><header class="panel-head"><div class="panel-title"><h2>效率洞察</h2><p>系统根据实时作业数据生成</p></div></header><div class="panel-body rule-list"><div class="rule-item"><i>↗</i><span><b>拣选区 A 接近容量上限</b><br>建议将下一波次的 18% 任务平衡至 B 区。</span></div><div class="rule-item"><i>✓</i><span><b>短拣恢复时间改善</b><br>跨区重分配策略使平均恢复时长下降 3.8 分钟。</span></div></div></article><article class="panel"><header class="panel-head"><div class="panel-title"><h2>数据新鲜度</h2><p>指标来源与最近更新时间</p></div></header><div class="panel-body">${[['WMS 事务库','10:22:06'],['OMS 订单中心','10:21:58'],['TMS 运输平台','10:21:42'],['WCS 设备事件','10:22:04']].map(x=>`<div class="health-row"><i></i><span><b>${x[0]}</b><small>增量同步正常</small></span><strong>${x[1]}</strong></div>`).join('')}</div></article></div>
+    <div class="mini-grid"><article class="panel"><header class="panel-head"><div class="panel-title"><h2>销售统计</h2><p>对应访问系统的销售数量、销售金额统计</p></div></header><div class="table-wrap"><table class="data-table"><thead><tr><th>渠道</th><th>订单数</th><th>销售数量</th><th>销售金额</th><th>增长</th></tr></thead><tbody>${liteCatalog.salesStats.map(row=>`<tr><td>${row.channel}</td><td>${row.orders.toLocaleString()}</td><td>${row.quantity.toLocaleString()}</td><td>${row.amount}</td><td>${badge(row.growth,'success')}</td></tr>`).join('')}</tbody></table></div></article><article class="panel"><header class="panel-head"><div class="panel-title"><h2>数据新鲜度</h2><p>指标来源与最近更新时间</p></div></header><div class="panel-body">${[['WMS 事务库','10:22:06'],['OMS 订单中心','10:21:58'],['TMS 运输平台','10:21:42'],['WCS 设备事件','10:22:04']].map(x=>`<div class="health-row"><i></i><span><b>${x[0]}</b><small>增量同步正常</small></span><strong>${x[1]}</strong></div>`).join('')}</div></article></div>
+    <article class="panel" style="margin-top:16px"><header class="panel-head"><div class="panel-title"><h2>效率洞察</h2><p>系统根据实时作业数据生成</p></div></header><div class="panel-body rule-list"><div class="rule-item"><i>↗</i><span><b>拣选区 A 接近容量上限</b><br>建议将下一波次的 18% 任务平衡至 B 区。</span></div><div class="rule-item"><i>✓</i><span><b>短拣恢复时间改善</b><br>跨区重分配策略使平均恢复时长下降 3.8 分钟。</span></div></div></article>
   </section>`;
 }
 
@@ -216,12 +235,84 @@ function returnsView() {
 
 function masterView() {
   const datasets={
-    locations:{headers:['编码','类型','所属区域','容量占用','温层','状态'],rows:rangeRows([['A-01-03-02','存储位','存储区 A','1.2 / 1.8m³','常温','启用'],['B-PK-006','拣选位','拣选区 B','32 / 40 件','常温','启用']],14,(i)=>[`A-${String(i%4+1).padStart(2,'0')}-${String(i+1).padStart(2,'0')}-01`,i%3?'存储位':'拣选位',`存储区 ${i%2?'A':'B'}`,`${.6+(i%8)/10} / 1.8m³`,'常温',i%7?'启用':'限制'])},
-    products:{headers:['SKU','商品名称','基础单位','箱规','批次策略','状态'],rows:rangeRows([['SKU-AX19-042','智能温湿度传感器','件','12件/箱','批次+序列号','启用']],13,(i)=>[`SKU-${['RF','PK','BX'][i%3]}${String(100+i)}`,['RFID抗金属标签','工业扫码器','防静电周转箱'][i%3],'件',`${6+(i%4)*6}件/箱`,i%2?'批次+效期':'序列号','启用'])},
-    barcodes:{headers:['扫描码','类型','映射 SKU','包装层级','来源','状态'],rows:rangeRows([['6971234567890','主条码','SKU-AX19-042','单件','主数据平台','有效']],12,(i)=>[`69712345${String(67900+i)}`,i%2?'辅条码':'箱码',`SKU-${['RF','PK','BX'][i%3]}${100+i}`,i%2?'单件':'整箱','ERP','有效'])},
-    owners:{headers:['组织/货主编码','名称','类型','授权仓库','数据来源','状态'],rows:rangeRows([['OWN-001','星云智能科技','货主','华东一号仓','ERP','启用']],11,(i)=>[`OWN-${String(i+2).padStart(3,'0')}`,['华东商贸','极光零售','北辰制造'][i%3],i%4?'货主':'业务组织',i%2?'华东一号仓':'华东/华南仓','主数据平台','启用'])},
+    warehouses:{headers:['仓库编码','仓库名称','联系人','地址','类型','状态'],rows:liteCatalog.warehouses.map(item=>[item.code,item.name,item.contact,item.address,item.type,item.status])},
+    items:{headers:['SKU','商品名称','分类','品牌','单位','条码','库存属性','状态'],rows:liteCatalog.items.map(item=>[item.sku,item.name,item.category,item.brand,item.unit,item.barcode,item.attrs,item.status])},
+    dictionaries:{headers:['字典类型','编码','名称','排序','状态'],rows:liteCatalog.itemDictionaries.map(item=>[item.type,item.code,item.name,item.sort,item.status])},
+    merchants:{headers:['往来单位编码','名称','类型','联系方式','结算信息','状态'],rows:liteCatalog.merchants.map(item=>[item.code,item.name,item.type,item.contact,item.settlement,item.status])},
+    people:{headers:['账号','姓名','角色','默认仓库','手机号','状态'],rows:liteCatalog.people.map(item=>[item.account,item.name,item.role,item.warehouse,item.phone,item.status])},
+    operationTypes:{headers:['操作类型编码','名称','方向','库存影响','审核节点','状态'],rows:liteCatalog.operationTypes.map(item=>[item.code,item.name,item.direction,item.affects,item.audit,item.status])},
   }; const dataset=datasets[ui.tabs.master]; const meta=paginateRows(dataset.rows,ui.pages.master,ui.pageSize); ui.pages.master=meta.page;
-  return `<section class="page">${pageHead('MASTER DATA', '主数据中心', '维护组织、货主、仓库、库位、商品、包装、条码和库存属性','<button class="btn secondary" data-action="sync-master">同步主数据</button><button class="btn primary" data-action="new-master">新增主数据</button>')}<div class="toolbar"><div class="segmented">${tabButton('master','locations','仓库与库位')}${tabButton('master','products','商品与包装')}${tabButton('master','barcodes','条码映射')}${tabButton('master','owners','组织与货主')}</div><label class="search"><span>⌕</span><input class="list-search" type="search" placeholder="搜索当前列表"></label></div><article class="panel table-panel"><div class="table-wrap"><table class="data-table"><thead><tr>${dataset.headers.map(h=>`<th>${h}</th>`).join('')}<th>操作</th></tr></thead><tbody>${meta.items.map(r=>`<tr>${r.map((c,i)=>`<td data-label="${dataset.headers[i]}">${i===5?badge(c,c==='限制'?'warning':'success'):c}</td>`).join('')}<td><button class="link-button" data-action="location-detail">编辑 →</button></td></tr>`).join('')}</tbody></table></div>${paginationControls('master',meta)}</article></section>`;
+  return `<section class="page">${pageHead('MASTER DATA', '主数据中心', '参考线上 Lite 系统，覆盖仓库、商品、品牌分类单位属性、人员、往来单位和操作类型配置','<button class="btn secondary" data-action="sync-master">同步主数据</button><button class="btn primary" data-action="new-master">新增主数据</button>')}<div class="toolbar"><div class="segmented">${tabButton('master','warehouses','仓库管理')}${tabButton('master','items','商品管理')}${tabButton('master','dictionaries','品牌/分类/单位/属性')}${tabButton('master','merchants','往来单位')}${tabButton('master','people','人员信息')}${tabButton('master','operationTypes','操作类型')}</div><label class="search"><span>⌕</span><input class="list-search" type="search" placeholder="搜索当前列表"></label></div><article class="panel table-panel"><div class="table-wrap"><table class="data-table"><thead><tr>${dataset.headers.map(h=>`<th>${h}</th>`).join('')}<th>操作</th></tr></thead><tbody>${meta.items.map(r=>`<tr>${r.map((c,i)=>`<td data-label="${dataset.headers[i]}">${i===dataset.headers.length-1?badge(c,c==='启用'?'success':c==='锁定'?'danger':'warning'):c}</td>`).join('')}<td><button class="link-button" data-action="lite-detail">编辑 →</button></td></tr>`).join('')}</tbody></table></div>${paginationControls('master',meta)}</article></section>`;
+}
+
+function liteWmsView() {
+  const tabs = [
+    ['warehouses','仓库管理'], ['items','商品/SKU'], ['dictionaries','品牌分类单位属性'],
+    ['merchants','往来单位'], ['operationTypes','操作类型'], ['people','人员信息'],
+    ['warnings','预警设置'], ['documents','出入移盘单据'], ['printing','打印模板'], ['system','系统受限项'],
+  ];
+  const active = ui.tabs.lite || 'warehouses';
+  const data = state.lite.catalogs;
+  const headers = {
+    warehouses:['ID','仓库名称','排序','创建人','创建时间','状态'],
+    items:['ID','商品名称','分类','单位','品牌','批次/序列号','状态'],
+    dictionaries:['类型','编码','名称','排序','选项','状态'],
+    merchants:['编码','名称','类型','联系人','结算信息','状态'],
+    operationTypes:['编码','名称','方向','库存影响','审核节点','状态'],
+    people:['账号','姓名','用户类型','仓库权限','最近登录','状态'],
+    warnings:['对象','类型','阈值','当前值','等级'],
+    documents:['单据号','单据名称','类型','往来单位/库区','数量','金额','状态'],
+    printing:['模板编码','模板名称','业务场景','匹配规则','状态'],
+    system:['模块','接口','访问结果','处理方式','状态'],
+  };
+  const rows = {
+    warehouses:data.warehouses.map(i=>[i.id,i.name,i.orderNum,i.createBy,i.createTime,i.status,i.id]),
+    items:data.items.map(i=>[i.id,i.name,i.category,i.unit,i.brand,`${i.batch?'批次':'无批次'} / ${i.serial?'序列号':'无序列号'}`,i.status,i.id]),
+    dictionaries:data.itemDictionaries.map(i=>[i.type,i.code,i.name,i.orderNum,i.options||'-',i.status,i.id]),
+    merchants:data.merchants.map(i=>[i.code,i.name,i.type,i.contact,i.settlement,i.status,i.id]),
+    operationTypes:data.operationTypes.map(i=>[i.code,i.name,i.direction,i.affects,i.audit,i.status,i.id]),
+    people:data.people.map(i=>[i.account,i.name,i.role,i.warehouseType,i.loginDate,i.status,i.id]),
+    warnings:data.inventoryWarnings.map(i=>[i.object,i.type,i.threshold,i.current,i.level,i.id]),
+    documents:data.documentTemplates.map(i=>[i.id,i.name,i.type,i.counterparty,i.quantity,i.amount,i.status,i.id]),
+    printing:[['TPL-REC','入库单模板','入库打印','按单据类型匹配','启用','TPL-REC'],['TPL-SHP','出库单模板','出库打印','按客户/仓库匹配','启用','TPL-SHP'],['TPL-MOV','移库单模板','移库打印','按操作类型匹配','启用','TPL-MOV'],['TPL-CHK','盘库单模板','盘库打印','按盘点任务匹配','启用','TPL-CHK']],
+    system:data.blockedSystemModules.map(i=>[i.module,i.api,i.result,i.handling,'受限',i.module]),
+  };
+  const currentRows = rows[active] || rows.warehouses;
+  const currentHeaders = headers[active] || headers.warehouses;
+  const writable = roleAccess().writable && active !== 'system';
+  const actionCell = (row) => {
+    const id = row[row.length - 1];
+    const module = active === 'dictionaries' ? 'dictionaries' : active;
+    if (active === 'system') return '<td><button class="link-button" data-action="lite-permission-info">查看权限</button></td>';
+    if (active === 'warnings') return `<td><button class="link-button" data-action="lite-edit-alert" data-lite-module="${module}" data-lite-id="${id}">配置阈值</button></td>`;
+    if (active === 'people') return `<td><button class="link-button" data-action="lite-reset-password" data-lite-id="${id}">重置密码</button></td>`;
+    if (active === 'documents') return `<td><button class="link-button" data-action="lite-doc-approve" data-lite-id="${id}">审核</button> · <button class="link-button" data-action="lite-doc-reject" data-lite-id="${id}">驳回</button> · <button class="link-button" data-action="lite-doc-print" data-lite-id="${id}">打印</button></td>`;
+    if (active === 'printing') return `<td><button class="link-button" data-action="lite-print-preview" data-lite-id="${id}">预览</button> · <button class="link-button" data-action="lite-print-job" data-lite-id="${id}">生成任务</button></td>`;
+    return `<td><button class="link-button" data-action="lite-edit" data-lite-module="${module}" data-lite-id="${id}">编辑</button> · <button class="link-button" data-action="lite-toggle" data-lite-module="${module}" data-lite-id="${id}">启停</button> · <button class="link-button" data-action="lite-delete" data-lite-module="${module}" data-lite-id="${id}">删除</button></td>`;
+  };
+  const tableRows = currentRows.map(row=>`<tr>${row.slice(0,-1).map((cell,index)=>`<td data-label="${currentHeaders[index]}">${index===currentHeaders.length-1?badge(cell,cell==='启用'||cell==='正常'||cell==='已审核'?'success':cell==='预警'||cell==='异常'||cell==='停用'?'danger':cell==='受限'||cell==='待审核'?'warning':'muted'):cell}</td>`).join('')}${actionCell(row)}</tr>`).join('');
+  const auditRows = state.lite.pendingAudit.length ? state.lite.pendingAudit.map(item=>`<tr><td class="mono">${item.id}</td><td>${item.module}</td><td>${item.name}</td><td>${badge(item.status,item.status==='已审核'?'success':'warning')}</td><td><button class="link-button" data-action="lite-approve" data-audit-id="${item.id}">审核通过</button></td></tr>`).join('') : '<tr><td colspan="5"><div class="empty-state" style="min-height:120px"><div><h2>暂无待审核记录</h2><p>新增或编辑记录后可提交审核。</p></div></div></td></tr>';
+  return `<section class="page">${pageHead('REAL WMS LITE CLONE', 'Lite WMS 功能复刻', '按访问系统接口、权限点和真实数据样例搬运：列表、增改删、审核、启停、排序、预警、人员和模板均可流转', `<button class="btn secondary" data-action="lite-sync">同步访问系统样例</button><button class="btn primary" data-action="lite-new" ${writable?'':'disabled'}>新增当前模块</button>`)}
+    <div class="kpi-grid"><article class="kpi-card"><div class="kpi-label">真实接口模块</div><div class="kpi-value">14</div><div class="kpi-meta"><b>租户侧 API</b><span>已映射</span></div></article><article class="kpi-card success"><div class="kpi-label">可写权限点</div><div class="kpi-value">17</div><div class="kpi-meta"><b>edit / audit</b><span>已复刻</span></div></article><article class="kpi-card warning"><div class="kpi-label">受限系统项</div><div class="kpi-value">${data.blockedSystemModules.length}</div><div class="kpi-meta"><b>403</b><span>按真实权限展示</span></div></article><article class="kpi-card"><div class="kpi-label">待审核</div><div class="kpi-value">${state.lite.pendingAudit.filter(item=>item.status==='待审核').length}</div><div class="kpi-meta"><b>本地流转</b><span>可审核</span></div></article></div>
+    <div class="toolbar"><div class="segmented">${tabs.map(([id,label])=>tabButton('lite',id,label)).join('')}</div><label class="search"><span>⌕</span><input class="list-search" type="search" placeholder="搜索当前模块"></label>${active==='dictionaries'?'<button class="btn secondary" data-action="lite-sort">保存排序</button>':''}</div>
+    <article class="panel table-panel"><header class="panel-head"><div class="panel-title"><h2>${tabs.find(([id])=>id===active)?.[1] || '仓库管理'}</h2><p>对应真实接口：${liteEndpoint(active)}</p></div>${writable?badge('可编辑','success'):badge('只读/受限','warning')}</header><div class="table-wrap"><table class="data-table"><thead><tr>${currentHeaders.map(item=>`<th>${item}</th>`).join('')}<th>操作</th></tr></thead><tbody>${tableRows}</tbody></table></div></article>
+    <div class="mini-grid" style="margin-top:16px"><article class="panel table-panel"><header class="panel-head"><div class="panel-title"><h2>审核队列</h2><p>模拟 receipt/shipment/movement/check audit 与主数据发布</p></div></header><div class="table-wrap"><table class="data-table"><thead><tr><th>审批单</th><th>模块</th><th>对象</th><th>状态</th><th>操作</th></tr></thead><tbody>${auditRows}</tbody></table></div></article><article class="panel"><header class="panel-head"><div class="panel-title"><h2>操作轨迹</h2><p>对应真实系统审计感知</p></div></header><div class="panel-body timeline">${state.lite.auditTrail.slice(-5).reverse().map(item=>`<div class="timeline-item"><b>${item.action}</b><small>${item.time} · ${item.actor} · ${item.target}</small></div>`).join('')}</div></article></div>
+  </section>`;
+}
+
+function liteEndpoint(module) {
+  return ({
+    warehouses:'/tenant/warehouse/listNoPage, POST/PUT/DELETE /tenant/warehouse',
+    items:'/tenant/item/listNoPage, /tenant/itemSku/listNoPage, POST/PUT/DELETE /tenant/item',
+    dictionaries:'/tenant/itemBrand|itemCategory|itemUnit|attr/listNoPage + sort',
+    merchants:'/tenant/merchant/list, POST/PUT/DELETE /tenant/merchant',
+    operationTypes:'/tenant/operationType/list, POST/PUT/DELETE /tenant/operationType',
+    people:'/tenant/tenantUser/list, status/password/nickName',
+    warnings:'/tenant/alertSettingSku + /tenant/alertSettingWarehouse',
+    documents:'真实系统文案：入库/出库/移库/盘库模板与审核',
+    printing:'hiprint 打印模板、预览、复制、受控重打',
+    system:'/system/config|dict|oss 返回 403，按权限展示',
+  })[module] || '/tenant/warehouse/listNoPage';
 }
 
 function rulesView() {
@@ -345,6 +436,33 @@ document.addEventListener('click', (event) => {
   else if (action === 'inventory-reconcile') toast('库存余额与有效事务核对一致，差异 0 件');
   else if (action === 'scan-asn') toast(`已识别 ASN ${state.inbound.asnId}`,true,'扫描成功');
   else if (action === 'report-export') toast('运营日报已生成，所有敏感字段均按角色脱敏');
+  else if (action === 'lite-detail') openDrawer('Lite 功能详情', '<div class="detail-section"><h3>原型已覆盖的操作</h3><div class="rule-list"><div class="rule-item"><i>✓</i>列表查询、筛选、分页和状态展示</div><div class="rule-item"><i>✓</i>新增、编辑、审核、启停或重试入口</div><div class="rule-item"><i>✓</i>关键数据范围和审计提示</div></div></div><div class="weight-result">当前为高保真原型，不会写入线上系统数据。</div>', event.target);
+  else if (action === 'new-document') openDrawer('新增业务单据', '<div class="form-grid"><div class="field"><label>单据类型</label><select><option>采购入库单</option><option>销售出库单</option><option>库内移库单</option><option>盘库单</option></select></div><div class="field"><label>往来单位 / 库区</label><input value="星云智能科技"></div><div class="field"><label>商品 SKU</label><input value="SKU-AX19-042"></div><div class="field"><label>数量</label><input type="number" value="48"></div><button class="btn primary" data-action="save-document">保存暂存单</button></div>', event.target);
+  else if (action === 'save-document') { closeDrawer(); toast('单据已暂存，可进入审核流程'); }
+  else if (action === 'lite-sync') toast('已按访问系统接口样例刷新：吴江仓、沭阳仓、电机商品、恒立/alibaba 往来单位等');
+  else if (action === 'lite-new') {
+    const module=ui.tabs.lite || 'warehouses';
+    openDrawer('新增当前模块记录', `<form id="lite-record-form" class="form-grid"><input type="hidden" id="lite-module" value="${module}"><div class="field"><label for="lite-name">名称 *</label><input id="lite-name" value="${module==='items'?'新商品':module==='people'?'新人员':'新记录'}"></div><div class="field"><label for="lite-code">编码/账号 *</label><input id="lite-code" value="${module.toUpperCase()}-${Date.now().toString().slice(-4)}"></div><div class="field"><label for="lite-remark">备注</label><input id="lite-remark" value="由原型模拟新增"></div><button class="btn primary" type="submit">保存暂存并提交审核</button></form>`,event.target);
+  }
+  else if (action === 'lite-edit') {
+    const btn=event.target.closest('[data-lite-id]');
+    openDrawer('编辑记录', `<form id="lite-record-form" class="form-grid"><input type="hidden" id="lite-module" value="${btn.dataset.liteModule}"><input type="hidden" id="lite-id" value="${btn.dataset.liteId}"><div class="field"><label for="lite-name">名称 *</label><input id="lite-name" value="已编辑记录"></div><div class="field"><label for="lite-code">编码/账号 *</label><input id="lite-code" value="${btn.dataset.liteId}"></div><div class="field"><label for="lite-remark">备注</label><input id="lite-remark" value="模拟编辑真实系统字段"></div><button class="btn primary" type="submit">保存并提交审核</button></form>`,btn);
+  }
+  else if (action === 'lite-toggle') { const btn=event.target.closest('[data-lite-id]'); const r=toggleLiteStatus(state,{module:btn.dataset.liteModule,id:btn.dataset.liteId}); state=r.state; toast(r.message,r.ok); render(); }
+  else if (action === 'lite-delete') { const btn=event.target.closest('[data-lite-id]'); const r=deleteLiteRecord(state,{module:btn.dataset.liteModule,id:btn.dataset.liteId}); state=r.state; toast(r.message,r.ok,r.ok?'删除完成':'删除被阻止'); render(); }
+  else if (action === 'lite-sort') { const r=sortLiteDictionary(state); state=r.state; toast(r.message,r.ok); render(); }
+  else if (action === 'lite-approve') { const r=approveLiteAudit(state,event.target.closest('[data-audit-id]').dataset.auditId); state=r.state; toast(r.message,r.ok); render(); }
+  else if (action === 'lite-edit-alert') {
+    const id=event.target.closest('[data-lite-id]').dataset.liteId;
+    openDrawer('配置预警阈值', `<form id="lite-alert-form" class="form-grid"><input type="hidden" id="lite-alert-id" value="${id}"><div class="field"><label for="lite-min">最小库存</label><input id="lite-min" type="number" value="100"></div><div class="field"><label for="lite-max">最大库存</label><input id="lite-max" type="number" value="500"></div><div class="weight-result">对应真实接口：PUT /tenant/alertSettingSku 或 /tenant/alertSettingWarehouse</div><button class="btn primary" type="submit">保存阈值</button></form>`,event.target);
+  }
+  else if (action === 'lite-reset-password') { const r=resetTenantUserPassword(state,event.target.closest('[data-lite-id]').dataset.liteId); state=r.state; toast(r.message,r.ok,'密码已重置'); render(); }
+  else if (action === 'lite-doc-approve') { const r=reviewLiteDocument(state,{id:event.target.closest('[data-lite-id]').dataset.liteId,decision:'approve'}); state=r.state; toast(r.message,r.ok,r.ok?'审核完成':'审核被阻止'); render(); }
+  else if (action === 'lite-doc-reject') openDrawer('驳回业务单据', `<form id="lite-document-review-form" class="form-grid"><input type="hidden" id="lite-document-id" value="${event.target.closest('[data-lite-id]').dataset.liteId}"><div class="field"><label for="lite-reject-reason">驳回原因 *</label><select id="lite-reject-reason"><option>往来单位未确认</option><option>数量与实物不一致</option><option>商品信息不完整</option></select></div><button class="btn danger" type="submit">确认驳回</button></form>`, event.target);
+  else if (action === 'lite-doc-print') { const r=createLitePrintJob(state,{templateId:'TPL-'+event.target.closest('[data-lite-id]').dataset.liteId.slice(0,3),sourceId:event.target.closest('[data-lite-id]').dataset.liteId}); state=r.state; toast(r.message,r.ok,'打印任务已创建'); render(); }
+  else if (action === 'lite-print-preview') openDrawer('打印模板预览', `<div class="scan-box"><div><div class="scan-ring">▣</div><h2>${event.target.closest('[data-lite-id]').dataset.liteId}</h2><p>模拟 hiprint 模板画布，支持字段绑定、复制模板和打印预览。</p></div></div><div class="rule-list"><div class="rule-item"><i>✓</i>纸张、坐标、条码、二维码、表格字段可配置</div><div class="rule-item"><i>✓</i>模板按单据类型和仓库匹配</div></div>`, event.target);
+  else if (action === 'lite-print-job') { const r=createLitePrintJob(state,{templateId:event.target.closest('[data-lite-id]').dataset.liteId}); state=r.state; toast(r.message,r.ok,'打印任务已创建'); render(); }
+  else if (action === 'lite-permission-info') openDrawer('真实系统权限限制', '<div class="weight-result error">当前 wms 账号访问 /system/config/list、/system/dict/data/list、/system/oss/list 返回 403。</div><div class="rule-list"><div class="rule-item"><i>✓</i>原型保留入口，但禁用写入操作</div><div class="rule-item"><i>✓</i>按真实系统权限边界展示，不伪造可操作状态</div></div>',event.target);
   else if (action === 'retry-integration') { const result=retryIntegration(state,'MSG-260703-0098'); state=result.state; toast(result.message,result.ok,result.ok?'接口恢复':'无法重试'); render(); }
   else if (action === 'pda-sync') { const result=syncPdaQueue(state,state.pda.pendingOperations); state=result.state; toast(result.message,result.ok,'离线续作完成'); render(); }
   else if (action === 'pda-scan') { const id=`OP-${1001+state.pda.pendingOperations.length}`; state.pda.pendingOperations=[...state.pda.pendingOperations,id]; toast(`扫描已保存在本机队列：${id}`,true,'离线缓存成功'); render(); }
@@ -444,6 +562,29 @@ document.addEventListener('submit', (event) => {
   if (event.target.id==='deactivate-user-form') { event.preventDefault(); const handoff=document.querySelector('#handoff-user'); const result=deactivateUser(state,{userId:'U-1002',handoffTo:handoff.value}); if(!result.ok){const error=document.querySelector('#handoff-error'); error.hidden=false; error.textContent=result.message; handoff.focus(); return;} state=result.state; closeDrawer(); ui=selectTab(ui,'admin','users'); toast(result.message,true,'用户已停用'); render(); }
   if (event.target.id==='new-user-form') { event.preventDefault(); const result=createUser(state,{account:document.querySelector('#new-account').value.trim(),name:document.querySelector('#new-name').value.trim(),employeeNo:document.querySelector('#new-employee').value.trim(),role:document.querySelector('#new-user-role').value}); if(!result.ok){const error=document.querySelector('#new-user-error'); error.hidden=false; error.textContent=result.message; return;} state=result.state; closeDrawer(); ui=selectTab(ui,'admin','users'); toast(result.message,true,'用户创建成功'); render(); }
   if (event.target.id==='new-role-form') { event.preventDefault(); const result=createRole(state,{code:document.querySelector('#new-role-code').value.trim(),name:document.querySelector('#new-role-name').value.trim(),scope:document.querySelector('#new-role-scope').value}); if(!result.ok){const error=document.querySelector('#new-role-error'); error.hidden=false; error.textContent=result.message; return;} state=result.state; closeDrawer(); ui=selectTab(ui,'admin','roles'); toast(result.message,true,'角色草稿已创建'); render(); }
+  if (event.target.id==='lite-record-form') {
+    event.preventDefault();
+    const module=document.querySelector('#lite-module').value;
+    const id=document.querySelector('#lite-id')?.value;
+    const name=document.querySelector('#lite-name').value.trim();
+    const code=document.querySelector('#lite-code').value.trim();
+    const saved=saveLiteRecord(state,{module,id,values:{name,code,account:code,remark:document.querySelector('#lite-remark').value,status:'待审核'}});
+    state=saved.state;
+    const recordId=id || state.lite.dirtyDraft;
+    const audited=submitLiteAudit(state,{module,id:recordId});
+    state=audited.state;
+    closeDrawer(); toast(audited.ok?audited.message:saved.message,audited.ok || saved.ok,'已进入流转'); render(); return;
+  }
+  if (event.target.id==='lite-alert-form') {
+    event.preventDefault();
+    const result=updateLiteAlert(state,{id:document.querySelector('#lite-alert-id').value,minQuantity:document.querySelector('#lite-min').value,maxQuantity:document.querySelector('#lite-max').value});
+    state=result.state; closeDrawer(); toast(result.message,result.ok); render(); return;
+  }
+  if (event.target.id==='lite-document-review-form') {
+    event.preventDefault();
+    const result=reviewLiteDocument(state,{id:document.querySelector('#lite-document-id').value,decision:'reject',reason:document.querySelector('#lite-reject-reason').value});
+    state=result.state; closeDrawer(); toast(result.message,result.ok,'单据已驳回'); render(); return;
+  }
 });
 
 document.addEventListener('keydown', (event) => { if(event.key==='Escape'){ if(!dialogBackdrop.hidden) closeDialog(); else if(drawer.classList.contains('open')) closeDrawer(); else if(sidebar.classList.contains('open')) sidebar.classList.remove('open'); } });

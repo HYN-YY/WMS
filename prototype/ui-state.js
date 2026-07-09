@@ -4,7 +4,7 @@ export function createUiState() {
   return {
     pages: { orders: 1, inventory: 1, master: 1, exceptions: 1, replenishment: 1, rules: 1, integrations: 1, printing: 1, admin: 1 },
     pageSize: 5,
-    tabs: { dashboard: 'today', tasks: 'all', master: 'locations', reports: 'today', admin: 'approvals' },
+    tabs: { dashboard: 'today', tasks: 'all', master: 'warehouses', inventory: 'ledger', reports: 'operations', lite: 'warehouses', admin: 'approvals' },
     twinLayer: 'utilization',
   };
 }

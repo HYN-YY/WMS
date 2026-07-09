@@ -17,7 +17,7 @@ test('tab selection is tracked independently by view', () => {
   const ui = createUiState();
   const next = selectTab(ui, 'tasks', 'exception');
   assert.equal(next.tabs.tasks, 'exception');
-  assert.equal(next.tabs.master, 'locations');
+  assert.equal(next.tabs.master, 'warehouses');
 });
 
 test('digital-twin layer controls actual map parts', () => {

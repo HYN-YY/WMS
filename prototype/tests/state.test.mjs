@@ -23,6 +23,15 @@ import {
   createUser,
   createRole,
   switchRole,
+  saveLiteRecord,
+  submitLiteAudit,
+  approveLiteAudit,
+  toggleLiteStatus,
+  deleteLiteRecord,
+  updateLiteAlert,
+  resetTenantUserPassword,
+  reviewLiteDocument,
+  createLitePrintJob,
 } from '../state.js';
 
 test('allocation requires at least one selected order', () => {
@@ -215,4 +224,41 @@ test('role switching applies module, data-scope, and read-only access', () => {
   assert.equal(auditor.state.security.roleAccess['R-AUDITOR'].writable, false);
   assert.match(auditor.state.security.roleAccess['R-AUDITOR'].scope, /脱敏只读/);
   assert.equal(switchRole(state, 'R-NOT-FOUND').ok, false);
+});
+
+test('lite WMS records move through draft, audit, status, and delete guards', () => {
+  let state = createInitialState();
+  let saved = saveLiteRecord(state, { module: 'warehouses', values: { name: '测试仓', code: 'WH-TEST', status: '待审核' } });
+  assert.equal(saved.ok, true);
+  state = saved.state;
+  assert.equal(state.lite.catalogs.warehouses[0].createBy, 'wms');
+  const audit = submitLiteAudit(state, { module: 'warehouses', id: state.lite.dirtyDraft });
+  assert.equal(audit.ok, true);
+  state = audit.state;
+  const approved = approveLiteAudit(state, 'AUD-LITE-1');
+  assert.equal(approved.ok, true);
+  state = approved.state;
+  assert.equal(state.lite.catalogs.warehouses[0].status, '启用');
+  assert.equal(deleteLiteRecord(state, { module: 'warehouses', id: state.lite.catalogs.warehouses[0].id }).ok, false);
+  const toggled = toggleLiteStatus(state, { module: 'warehouses', id: state.lite.catalogs.warehouses[0].id });
+  assert.equal(toggled.state.lite.catalogs.warehouses[0].status, '停用');
+  assert.equal(deleteLiteRecord(toggled.state, { module: 'warehouses', id: toggled.state.lite.catalogs.warehouses[0].id }).ok, true);
+});
+
+test('lite WMS supports alert thresholds, user reset, document review, and print jobs', () => {
+  let state = createInitialState();
+  const alert = updateLiteAlert(state, { id: '2035716219550162948', minQuantity: 80, maxQuantity: 600 });
+  assert.equal(alert.ok, true);
+  assert.equal(alert.state.lite.catalogs.inventoryWarnings[0].threshold, '80.00 - 600.00');
+  const reset = resetTenantUserPassword(alert.state, '2034562888525541378');
+  assert.equal(reset.ok, true);
+  assert.match(reset.message, /临时密码/);
+  const approveDoc = reviewLiteDocument(reset.state, { id: 'REC-260703-001', decision: 'approve' });
+  assert.equal(approveDoc.ok, true);
+  assert.equal(approveDoc.state.lite.catalogs.documentTemplates[0].status, '已审核');
+  const rejectDoc = reviewLiteDocument(approveDoc.state, { id: 'MOV-260703-006', decision: 'reject', reason: '数量与实物不一致' });
+  assert.equal(rejectDoc.state.lite.catalogs.documentTemplates[2].status, '已驳回');
+  const print = createLitePrintJob(rejectDoc.state, { templateId: 'TPL-REC', sourceId: 'REC-260703-001' });
+  assert.equal(print.ok, true);
+  assert.match(print.message, /打印任务/);
 });
