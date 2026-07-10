@@ -32,7 +32,24 @@ import {
   resetTenantUserPassword,
   reviewLiteDocument,
   createLitePrintJob,
+  completeLitePrintJob,
+  refreshOperations,
+  createExportJob,
+  simulateWaveRules,
+  autoAssignTasks,
+  reconcileInventory,
+  scanAsn,
+  createCountPlan,
+  scanRma,
+  releaseReplenishment,
+  simulateRuleSample,
+  syncMasterData,
+  saveLocation,
+  resolveApproval,
+  syncProtonSuite,
+  runProtonModule,
 } from '../state.js';
+import { protonSuiteById } from '../proton-modules.js';
 
 test('allocation requires at least one selected order', () => {
   const state = createInitialState();
@@ -220,10 +237,25 @@ test('role switching applies module, data-scope, and read-only access', () => {
   assert.equal(picker.state.security.currentRoleId, 'R-PICKER');
   assert.equal(picker.state.activeView, 'tasks');
   assert.deepEqual(picker.state.security.roleAccess['R-PICKER'].views, ['tasks','pda','exceptions']);
+  assert.equal(picker.state.security.roleAccess['R-PICKER'].views.some((view) => view.startsWith('proton')), false);
   const auditor = switchRole(state, 'R-AUDITOR');
   assert.equal(auditor.state.security.roleAccess['R-AUDITOR'].writable, false);
   assert.match(auditor.state.security.roleAccess['R-AUDITOR'].scope, /脱敏只读/);
   assert.equal(switchRole(state, 'R-NOT-FOUND').ok, false);
+});
+
+test('proton suite sync and module execution update business state', () => {
+  let state = createInitialState();
+  const suite = protonSuiteById('protonInbound');
+  const synced = syncProtonSuite(state, suite.id, suite);
+  assert.equal(synced.ok, true);
+  assert.equal(synced.state.proton.syncedSuites.protonInbound, 1);
+  state = synced.state;
+  const executed = runProtonModule(state, { suite, module: suite.modules[0] });
+  assert.equal(executed.ok, true);
+  assert.equal(executed.state.proton.moduleStatus[suite.modules[0].route], '已完成');
+  assert.equal(executed.state.inbound.status, '已收货');
+  assert.equal(executed.state.proton.moduleRuns.length, 1);
 });
 
 test('lite WMS records move through draft, audit, status, and delete guards', () => {
@@ -256,9 +288,61 @@ test('lite WMS supports alert thresholds, user reset, document review, and print
   const approveDoc = reviewLiteDocument(reset.state, { id: 'REC-260703-001', decision: 'approve' });
   assert.equal(approveDoc.ok, true);
   assert.equal(approveDoc.state.lite.catalogs.documentTemplates[0].status, '已审核');
+  assert.equal(approveDoc.state.lite.inventoryTransactions.length, 1);
+  assert.equal(approveDoc.state.lite.catalogs.inventoryWarnings[0].current, '176.00');
   const rejectDoc = reviewLiteDocument(approveDoc.state, { id: 'MOV-260703-006', decision: 'reject', reason: '数量与实物不一致' });
   assert.equal(rejectDoc.state.lite.catalogs.documentTemplates[2].status, '已驳回');
   const print = createLitePrintJob(rejectDoc.state, { templateId: 'TPL-REC', sourceId: 'REC-260703-001' });
   assert.equal(print.ok, true);
   assert.match(print.message, /打印任务/);
+  assert.equal(print.state.lite.printJobs[0].status, '排队中');
+  const completed = completeLitePrintJob(print.state, print.state.lite.printJobs[0].id);
+  assert.equal(completed.ok, true);
+  assert.equal(completed.state.lite.printJobs[0].status, '已完成');
+});
+
+test('toolbar actions persist business state instead of ending at notifications', () => {
+  let state = createInitialState();
+  state = refreshOperations(state).state;
+  assert.equal(state.lastSync, '10:32:18');
+  state = createExportJob(state, { type: '脱敏订单清单', scope: '订单池' }).state;
+  assert.equal(state.exportJobs.length, 1);
+  state = createExportJob(state, { type: '运营日报', scope: 'today' }).state;
+  assert.equal(state.reportExports.length, 1);
+  state = simulateWaveRules(state).state;
+  assert.equal(state.wave.simulation.status, '通过');
+  state = autoAssignTasks(state).state;
+  assert.ok(state.tasks.some((task) => task.status === '执行中' && task.assignee !== '待领取'));
+  state = reconcileInventory(state).state;
+  assert.equal(state.inventoryReconciliations[0].difference, 0);
+});
+
+test('operational scans, replenishment, count plans, and master sync update local workflow state', () => {
+  let state = createInitialState();
+  state = scanAsn(state).state;
+  assert.equal(state.inbound.scanned, true);
+  state = scanRma(state).state;
+  assert.equal(state.returnOrder.scanned, true);
+  state = releaseReplenishment(state).state;
+  assert.equal(state.replenishmentTasks.length, 2);
+  assert.ok(state.tasks.some((task) => task.id === 'RP260703-041'));
+  state = createCountPlan(state, { scope: '拣选区 A', mode: '盲盘', freezePolicy: '冻结出库' }).state;
+  assert.equal(state.countPlans[0].status, '已下发');
+  state = simulateRuleSample(state).state;
+  assert.equal(state.ruleSimulation.conflicts, 0);
+  state = syncMasterData(state).state;
+  assert.equal(state.masterSync.updated, 12);
+  state = saveLocation(state, { code: 'A-01-03-04' }).state;
+  assert.equal(state.lite.catalogs.warehouses[0].code, 'A-01-03-04');
+});
+
+test('approval processing changes approval status and posts resulting business transaction', () => {
+  const state = createInitialState();
+  const approved = resolveApproval(state, { id: 'AP260703-018', decision: 'approve' });
+  assert.equal(approved.ok, true);
+  assert.equal(approved.state.security.approvals[0].status, '已通过');
+  assert.equal(approved.state.lite.inventoryTransactions.length, 1);
+  assert.equal(approved.state.inventory[0].available, 119);
+  const rejected = resolveApproval(createInitialState(), { id: 'AP260703-018', decision: 'reject' });
+  assert.equal(rejected.state.security.approvals[0].status, '已驳回');
 });

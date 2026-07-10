@@ -1,4 +1,4 @@
-import { baseTasks, demoOrders, zones, liteCatalog } from './data.js?v=11';
+import { baseTasks, demoOrders, zones, liteCatalog } from './data.js?v=17';
 
 // Demo state is deliberately JSON-safe; this keeps the prototype compatible with Node 16.
 const copy = (value) => JSON.parse(JSON.stringify(value));
@@ -31,6 +31,14 @@ export function createInitialState() {
       ...Array.from({length:10},(_,index)=>({ sku:`SKU-DM${String(index+1).padStart(2,'0')}-${100+index}`, product:['防静电周转箱','工业标签打印纸','叉车电池模组','包装缓冲材料'][index%4], location:`${index%2?'A':'B'}-0${index%4+1}-${String(index+4).padStart(2,'0')}-0${index%3+1}`, onHand:80+index*37, allocated:10+index*3, available:70+index*34, frozen:index%5===0?2:0, batch:`BT2607${String(index+1).padStart(2,'0')}-D` })),
     ],
     inventoryAudit: [],
+    exportJobs: [],
+    reportExports: [],
+    inventoryReconciliations: [],
+    replenishmentTasks: [],
+    countPlans: [],
+    masterSync: { status: '未同步', updated: 0, conflicts: 0 },
+    ruleSimulation: null,
+    lastSync: '10:18:32',
     count: { id: 'CC260703-012', mode: '盲盘', sku: 'SKU-AX19-042', book: 128, counted: null, variance: 0, status: '盘点中' },
     returnOrder: { id: 'RMA260703-028', orderId: 'SO20260628091', serial: 'SN-A19-8842', product: '智能温湿度传感器', status: '待质检', disposition: null },
     rules: [
@@ -40,10 +48,18 @@ export function createInitialState() {
     ],
     integrationQueue: [{ id: 'MSG-260703-0098', system: 'TMS', event: 'shipment_confirmed', retries: 3, status: '人工处理' }],
     pda: { online: false, pendingOperations: ['OP-1001', 'OP-1002'], syncedOperations: [] },
+    proton: {
+      moduleStatus: {},
+      moduleRuns: [],
+      syncedSuites: {},
+      lastSync: '',
+    },
     lite: {
       activeModule: 'warehouses',
       dirtyDraft: null,
       pendingAudit: [],
+      inventoryTransactions: [],
+      printJobs: [],
       auditTrail: [
         { time: '13:52:40', actor: 'wms', action: '登录系统', target: 'Tenant-Token / PC' },
         { time: '13:53:12', actor: 'wms', action: '查询列表', target: '仓库、商品、往来单位、人员、预警设置' },
@@ -53,19 +69,19 @@ export function createInitialState() {
     security: {
       currentRoleId: 'R-WH-MANAGER',
       roleAccess: {
-        'R-WH-MANAGER': { user:'林安', avatar:'林', scope:'华东一号仓 · 全部货主', writable:true, views:['dashboard','twin','orders','waves','tasks','shipping','replenishment','exceptions','count','returns','inventory','inbound','reports','lite','printing','pda','admin'] },
+        'R-WH-MANAGER': { user:'林安', avatar:'林', scope:'华东一号仓 · 全部货主', writable:true, views:['dashboard','twin','orders','waves','tasks','shipping','replenishment','exceptions','count','returns','inventory','inbound','documents','transactions','alerts','reports','finance','printing','printJobs','pda','admin'] },
         'R-ORDER-OPS': { user:'宋妍', avatar:'宋', scope:'华东一号仓 · 授权货主与渠道', writable:true, views:['dashboard','orders','waves','tasks','exceptions','reports'] },
         'R-INBOUND': { user:'王敏', avatar:'王', scope:'华东一号仓 · 本人入库任务', writable:true, views:['inbound','tasks','printing','pda','exceptions'] },
         'R-QC': { user:'许洁', avatar:'许', scope:'华东一号仓 · 本人质检任务', writable:true, views:['inbound','returns','exceptions','pda'] },
         'R-PUTAWAY': { user:'李强', avatar:'李', scope:'华东一号仓 · 分配库区与本人任务', writable:true, views:['inbound','inventory','tasks','pda','exceptions'] },
-        'R-INVENTORY': { user:'赵凯', avatar:'赵', scope:'华东一号仓 · 3 个授权货主', writable:true, views:['dashboard','inventory','count','replenishment','returns','reports','lite','exceptions','pda'] },
+        'R-INVENTORY': { user:'赵凯', avatar:'赵', scope:'华东一号仓 · 3 个授权货主', writable:true, views:['dashboard','inventory','count','replenishment','returns','documents','transactions','alerts','reports','exceptions','pda'] },
         'R-REPLENISH': { user:'韩东', avatar:'韩', scope:'华东一号仓 · 本人补货任务', writable:true, views:['replenishment','inventory','tasks','pda','exceptions'] },
         'R-PICKER': { user:'周宇', avatar:'周', scope:'华东一号仓 · 本人拣货任务', writable:true, views:['tasks','pda','exceptions'] },
         'R-PACKER': { user:'陈曦', avatar:'陈', scope:'华东一号仓 · 复核工作站 PK-06', writable:true, views:['shipping','printing','exceptions','pda'] },
         'R-SHIPPER': { user:'顾航', avatar:'顾', scope:'华东一号仓 · 发运月台 D 区', writable:true, views:['shipping','printing','exceptions'] },
-        'R-SYSTEM-ADMIN': { user:'沈宁', avatar:'沈', scope:'全部仓 · 系统配置数据', writable:true, views:['lite','master','rules','integrations','printing','admin'] },
+        'R-SYSTEM-ADMIN': { user:'沈宁', avatar:'沈', scope:'全部仓 · 系统配置数据', writable:true, views:['documents','transactions','alerts','master','rules','integrations','finance','printing','printJobs','admin'] },
         'R-SECURITY-ADMIN': { user:'唐静', avatar:'唐', scope:'全部仓 · 安全配置数据', writable:true, views:['admin','reports'] },
-        'R-AUDITOR': { user:'陆清', avatar:'陆', scope:'全部仓 · 脱敏只读', writable:false, views:['dashboard','orders','tasks','shipping','exceptions','twin','inventory','inbound','reports','lite','master','rules','integrations','printing','admin'] },
+        'R-AUDITOR': { user:'陆清', avatar:'陆', scope:'全部仓 · 脱敏只读', writable:false, views:['dashboard','orders','tasks','shipping','exceptions','twin','inventory','inbound','documents','transactions','alerts','reports','finance','master','rules','integrations','printing','printJobs','admin'] },
       },
       users: [
         { id:'U-1001', account:'lin.an', name:'林安', employeeNo:'WH0018', organization:'华东运营中心', warehouse:'华东一号仓', position:'仓库经理', roles:['仓库经理'], status:'启用', source:'SSO', lastLogin:'2026-07-03 09:58', unfinished:0 },
@@ -168,6 +184,124 @@ export function confirmShipment(current) {
   state.shipment.status = '已发运';
   state.shipment.confirmedAt = '2026-07-03 10:18';
   return result(state, true, `发运成功，运单 ${state.shipment.waybill} 已回传`);
+}
+
+export function refreshOperations(current) {
+  const state = copy(current);
+  state.lastSync = '10:32:18';
+  state.security.audit.push({ id:`AUD-260703-${1030+state.security.audit.length}`, time:'10:32:18', event:'dashboard.refreshed', category:'访问', actor:'林安', role:'仓库经理', terminal:'WEB-01', object:'运营驾驶舱', before:'10:18:32', after:state.lastSync, reason:'手动刷新运营数据', result:'成功', trace:'TRC-REF1' });
+  return result(state, true, `数据已同步至 ${state.lastSync}`);
+}
+
+export function createExportJob(current, { type, scope }) {
+  const state = copy(current);
+  const id = `EXP-260703-${String(state.exportJobs.length + state.reportExports.length + 1).padStart(3, '0')}`;
+  const job = { id, type, scope, status: '已生成', createdAt: '10:33:06' };
+  if (type === '运营日报') state.reportExports.unshift(job);
+  else state.exportJobs.unshift(job);
+  state.security.audit.push({ id:`AUD-260703-${1030+state.security.audit.length}`, time:'10:33:06', event:'export.created', category:'导出', actor:'林安', role:'仓库经理', terminal:'WEB-01', object:id, before:'无', after:'已生成', reason:`导出${type}`, result:'成功', trace:'TRC-EXP1' });
+  return result(state, true, `${type} ${id} 已生成`);
+}
+
+export function simulateWaveRules(current) {
+  const state = copy(current);
+  const candidates = state.orders.filter((order) => ['待分配', '已分配'].includes(order.status));
+  state.wave.simulation = { checked: candidates.length, blocked: candidates.filter((order) => order.risk.includes('超时')).length, capacity: state.wave.capacity, status: '通过' };
+  return result(state, true, `规则试算完成：${candidates.length} 个订单校验通过`);
+}
+
+export function autoAssignTasks(current) {
+  const state = copy(current);
+  let assigned = 0;
+  state.tasks = state.tasks.map((task, index) => {
+    if (task.assignee === '待领取' && assigned < 4) {
+      assigned += 1;
+      return { ...task, assignee: ['周宇', '陈晨', '李强', '韩东'][index % 4], status: '执行中', progress: Math.max(task.progress, 10) };
+    }
+    return task;
+  });
+  return result(state, true, `已分配 ${assigned} 个待执行任务`);
+}
+
+export function reconcileInventory(current) {
+  const state = copy(current);
+  const id = `REC-INV-${state.inventoryReconciliations.length + 1}`;
+  state.inventoryReconciliations.unshift({ id, checked: state.inventory.length, difference: 0, status: '一致', time: '10:35:28' });
+  state.inventoryAudit.push({ time: '10:35', actor: '林安', sku: 'ALL', quantity: 0, reason: `库存对账 ${id} 差异 0` });
+  return result(state, true, `库存对账 ${id} 完成，差异 0 件`);
+}
+
+export function scanAsn(current) {
+  const state = copy(current);
+  state.inbound.scanned = true;
+  state.inbound.scanTime = '10:36:04';
+  return result(state, true, `已识别 ASN ${state.inbound.asnId}`);
+}
+
+export function createCountPlan(current, { scope, mode, freezePolicy }) {
+  const state = copy(current);
+  const id = `CC260703-${String(19 + state.countPlans.length).padStart(3, '0')}`;
+  state.countPlans.unshift({ id, scope, mode, freezePolicy, status: '已下发', tasks: 3 });
+  state.tasks.unshift({ id: `CT${id.slice(-3)}-001`, zone: scope, assignee: '待领取', progress: 0, status: '待执行', pieces: 3 });
+  return result(state, true, `盘点计划 ${id} 已创建，3 个任务已下发`);
+}
+
+export function scanRma(current) {
+  const state = copy(current);
+  state.returnOrder.scanned = true;
+  state.returnOrder.scanTime = '10:37:12';
+  return result(state, true, `已识别 RMA ${state.returnOrder.id}，原订单和序列号校验通过`);
+}
+
+export function releaseReplenishment(current) {
+  const state = copy(current);
+  const created = [
+    { id:'RP260703-041', source:'A-03-11-04', target:'A-01-03-02', sku:'SKU-AX19-042', quantity:144, priority:'紧急', status:'待执行' },
+    { id:'RP260703-042', source:'B-02-07-01', target:'B-01-02-01', sku:'SKU-PK08-116', quantity:72, priority:'普通', status:'待执行' },
+  ].filter((task) => !state.replenishmentTasks.some((item) => item.id === task.id));
+  state.replenishmentTasks.unshift(...created);
+  state.tasks.unshift(...created.map((task) => ({ id: task.id, zone: task.target, assignee: '待领取', progress: 0, status: '待执行', pieces: task.quantity })));
+  return result(state, true, `已释放 ${created.length} 个补货任务`);
+}
+
+export function simulateRuleSample(current) {
+  const state = copy(current);
+  state.ruleSimulation = { orders: 48, conflicts: 0, result: '通过', time: '10:38:44' };
+  return result(state, true, '样例试算完成：48 个订单命中，无规则冲突');
+}
+
+export function syncMasterData(current) {
+  const state = copy(current);
+  state.masterSync = { status: '已同步', updated: 12, conflicts: 0, time: '10:39:26' };
+  state.lite.auditTrail.push({ time: '10:39:26', actor: 'wms', action: '同步主数据', target: '仓库/商品/人员/往来单位' });
+  return result(state, true, '主数据增量同步完成：更新 12 条，冲突 0 条');
+}
+
+export function saveLocation(current, values = {}) {
+  const state = copy(current);
+  const id = values.code || 'A-01-03-04';
+  if (!state.lite.catalogs.warehouses.some((item) => item.code === id)) {
+    state.lite.catalogs.warehouses.unshift({ id, code: id, name: values.name || '新增库位 A-01-03-04', orderNum: state.lite.catalogs.warehouses.length + 1, createBy: 'wms', createTime: '2026-07-10 10:40:00', status: '启用' });
+  }
+  state.lite.auditTrail.push({ time: '10:40:00', actor: 'wms', action: '新增库位', target: id });
+  return result(state, true, `库位 ${id} 已创建，主数据列表已更新`);
+}
+
+export function resolveApproval(current, { id, decision }) {
+  const index = current.security.approvals.findIndex((item) => item.id === id);
+  if (index < 0) return result(current, false, '审批单不存在或已处理');
+  const state = copy(current);
+  const approval = state.security.approvals[index];
+  approval.status = decision === 'approve' ? '已通过' : '已驳回';
+  approval.node = decision === 'approve' ? '已完成' : '申请人修正';
+  approval.sla = '已处理';
+  state.security.audit.push({ id:`AUD-260703-${1030+state.security.audit.length}`, time:'10:41:12', event:`approval.${decision}`, category:'审批', actor:'林安', role:'仓库经理', terminal:'WEB-01', object:approval.id, before:'审批中', after:approval.status, reason:approval.summary, result:'成功', trace:'TRC-APV1' });
+  if (decision === 'approve' && approval.type === '库存调整') {
+    const item = state.inventory.find((row) => row.sku === approval.object);
+    if (item) item.available = Math.max(0, item.available - 9);
+    state.lite.inventoryTransactions.push({ id: `TX-LITE-${state.lite.inventoryTransactions.length + 1}`, documentId: approval.id, documentType: '库存调整', item: approval.object, quantity: -9, direction: '调整', status: '已入账' });
+  }
+  return result(state, true, `${approval.id} 已${decision === 'approve' ? '审批通过并完成业务入账' : '驳回并退回申请人'}`);
 }
 
 export function twinSummary(state) {
@@ -306,6 +440,66 @@ export function switchRole(current, roleId) {
   return result(state,true,`已切换为${role.name}，当前范围：${access.scope}`);
 }
 
+export function syncProtonSuite(current, suiteId, suite) {
+  if (!suite) return result(current, false, '未找到参考系统套件');
+  const state = copy(current);
+  state.proton.syncedSuites[suiteId] = (state.proton.syncedSuites[suiteId] || 0) + 1;
+  state.proton.lastSync = '14:18:36';
+  suite.modules.forEach((module) => {
+    if (!state.proton.moduleStatus[module.route]) state.proton.moduleStatus[module.route] = '已同步';
+  });
+  state.lite.auditTrail.push({ time: state.proton.lastSync, actor: 'wms', action: '同步参考系统套件', target: `${suite.title}/${suite.modules.length} modules` });
+  return result(state, true, `${suite.title}已同步 ${suite.modules.length} 个模块入口和接口映射`);
+}
+
+export function runProtonModule(current, { suite, module }) {
+  if (!suite || !module) return result(current, false, '未找到需要执行的参考系统模块');
+  const state = copy(current);
+  const time = '14:20:08';
+  const action = module.actions[0] || suite.primary || '执行业务动作';
+  state.proton.moduleStatus[module.route] = '已完成';
+  const run = {
+    id: `PTR-${260710000 + state.proton.moduleRuns.length + 1}`,
+    suiteId: suite.id,
+    suiteTitle: suite.title,
+    route: module.route,
+    moduleName: module.name,
+    object: module.object,
+    action,
+    api: module.api,
+    time,
+    result: `${action}完成，状态已回写`,
+  };
+  state.proton.moduleRuns.unshift(run);
+  state.lite.auditTrail.push({ time, actor: 'wms', action: `${module.name}:${action}`, target: module.object });
+  state.integrationQueue = state.integrationQueue.map((item) => item.id === 'MSG-260703-0098' ? { ...item, status: '成功' } : item);
+  if (suite.id === 'protonInbound') {
+    state.inbound.status = '已收货';
+    state.inbound.received = state.inbound.expected;
+    state.inbound.putawayTasks += 1;
+  }
+  if (suite.id === 'protonInventory') {
+    state.inventoryAudit.unshift({ sku: module.object, action, quantity: 1, reason: module.name });
+    state.inventoryReconciliations.unshift({ time, scope: module.name, result: '一致' });
+  }
+  if (suite.id === 'protonOutbound') {
+    state.wave.status = state.wave.status === '草稿' ? '已释放' : state.wave.status;
+    state.shipment.status = module.name.includes('装载') || module.name.includes('发运') ? '已发运' : state.shipment.status;
+  }
+  if (suite.id === 'protonReports' || suite.id === 'protonFinance' || module.name.includes('下载')) {
+    state.exportJobs.unshift({ id: `EXP-${260710000 + state.exportJobs.length + 1}`, type: module.name, scope: suite.title, status: '已生成' });
+  }
+  if (suite.id === 'protonTask') {
+    state.tasks = state.tasks.map((task, index) => index === 0 ? { ...task, status: '已完成' } : task);
+  }
+  if (suite.id === 'protonMaster') state.masterSync = { status: '已同步', updated: state.masterSync.updated + 1, conflicts: 0 };
+  if (suite.id === 'protonStrategy') state.ruleSimulation = { scope: module.name, hit: 12, conflict: 0 };
+  if (suite.id === 'protonSystem') {
+    state.security.audit.push({ id:`AUD-260710-${1030+state.security.audit.length}`, time, event:'proton.module.executed', category:'系统配置', actor:'林安', role:'仓库经理', terminal:'WEB-01', object:module.route, before:'待执行', after:'已完成', reason:action, result:'成功', trace:run.id });
+  }
+  return result(state, true, `${module.name}已完成：${action}`);
+}
+
 const moduleMap = {
   warehouses: 'warehouses',
   items: 'items',
@@ -355,7 +549,7 @@ export function submitLiteAudit(current, { module, id }) {
   const state = copy(current);
   state.lite.pendingAudit.push({ id: `AUD-LITE-${state.lite.pendingAudit.length + 1}`, module, recordId: id, name: item.name || item.account || item.code, status: '待审核' });
   state.lite.auditTrail.push({ time: '14:00:06', actor: 'wms', action: '提交审核', target: `${module}/${id}` });
-  return result(state, true, '已提交审核，记录进入待审核队列');
+  return result(state, true, '已提交审核，记录进入主数据审批列表');
 }
 
 export function approveLiteAudit(current, auditId) {
@@ -431,14 +625,54 @@ export function reviewLiteDocument(current, { id, decision, reason = '' }) {
   const target = state.lite.catalogs.documentTemplates.find((item) => item.id === id);
   target.status = decision === 'approve' ? '已审核' : '已驳回';
   target.reviewReason = reason || (decision === 'approve' ? '数量、往来单位和库存影响校验通过' : '业务信息不完整');
+  if (decision === 'approve') {
+    const direction = target.type === '入库' ? 1 : target.type === '出库' ? -1 : 0;
+    const impact = direction ? direction * Number(target.quantity) : 0;
+    state.lite.inventoryTransactions.push({
+      id: `TX-LITE-${state.lite.inventoryTransactions.length + 1}`,
+      documentId: target.id,
+      documentType: target.type,
+      item: target.type === '移库' || target.type === '盘库' ? target.counterparty : '轮毂电机',
+      quantity: impact || Number(target.quantity),
+      direction: target.type,
+      status: '已入账',
+    });
+    const warning = state.lite.catalogs.inventoryWarnings.find((item) => item.object.includes('轮毂电机'));
+    if (warning && impact) {
+      const currentQty = Number(String(warning.current).replace(/[^\d.-]/g, '')) || 0;
+      const nextQty = currentQty + impact;
+      warning.current = nextQty.toFixed(2);
+      const [min, max] = warning.threshold.split('-').map((value) => Number(value.trim()));
+      warning.level = nextQty < min || nextQty > max ? '预警' : '正常';
+    }
+  }
   state.lite.auditTrail.push({ time: '14:09:18', actor: 'wms', action: decision === 'approve' ? '单据审核通过' : '单据驳回', target: `${target.name}/${target.id}` });
   return result(state, true, decision === 'approve' ? `${target.name} 已审核，库存影响进入事务队列` : `${target.name} 已驳回，等待经办人修正`);
 }
 
-export function createLitePrintJob(current, { templateId, sourceId }) {
+export function createLitePrintJob(current, { templateId, sourceId, copies = 1 }) {
   const templateNames = { 'TPL-REC': '入库单模板', 'TPL-SHP': '出库单模板', 'TPL-MOV': '移库单模板', 'TPL-CHK': '盘库单模板' };
   const state = copy(current);
   const jobId = `PR-LITE-${state.lite.auditTrail.length + 1}`;
+  state.lite.printJobs.unshift({
+    id: jobId,
+    templateId,
+    templateName: templateNames[templateId] || templateId,
+    sourceId: sourceId || '手工预览',
+    printer: 'PT-LITE-01',
+    copies: Number(copies) || 1,
+    status: '排队中',
+  });
   state.lite.auditTrail.push({ time: '14:11:02', actor: 'wms', action: '生成打印任务', target: `${templateNames[templateId] || templateId}/${sourceId || '手工预览'}` });
   return result(state, true, `打印任务 ${jobId} 已生成，模板：${templateNames[templateId] || templateId}`);
+}
+
+export function completeLitePrintJob(current, jobId) {
+  const state = copy(current);
+  const job = state.lite.printJobs.find((item) => item.id === jobId);
+  if (!job) return result(current, false, '未找到打印任务');
+  if (job.status === '已完成') return result(current, false, '打印任务已完成，请勿重复执行');
+  job.status = '已完成';
+  state.lite.auditTrail.push({ time: '14:12:26', actor: 'wms', action: '打印完成', target: job.id });
+  return result(state, true, `${job.id} 已完成打印`);
 }
