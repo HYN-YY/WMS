@@ -7,10 +7,12 @@
 1. 完成前端项目的开发、构建与必要测试。
 2. 运行测试，测试通过后提交代码并推送到 GitHub `main` 分支。
 3. Cloudflare Workers 项目已连接 GitHub，推送后由 Cloudflare 自动构建和部署。
-4. 不额外创建 GitHub Actions、Cloudflare Pages 或重复部署流程。
-5. 不得将 Cloudflare API Token、账户 ID 或其他密钥提交到仓库。
-6. 推送后检查 Cloudflare 自动部署结果；可获取线上地址时，验证页面并向用户提供预览地址。
-7. 仅在此触发语句下提交代码并推送到远程仓库。
+4. 线上预览地址使用 Worker 默认地址：`https://wms.875161621.workers.dev`。
+5. 如 GitHub 自动部署未及时更新，可使用 Wrangler 直接部署当前 `wms` Worker。
+6. 不额外创建 GitHub Actions、Cloudflare Pages 或重复部署流程。
+7. 不得将 Cloudflare API Token、账户 ID 或其他密钥提交到仓库。
+8. 推送后检查 Cloudflare 自动部署结果；验证 Worker 默认地址并向用户提供预览地址。
+9. 仅在此触发语句下提交代码并推送到远程仓库。
 
 ## 本地预览
 
@@ -26,6 +28,7 @@
 
 - 用户明确指定部署方式时，以用户最新要求为准。
 - Cloudflare Workers 是本项目默认且唯一的线上部署平台，并通过 GitHub 推送自动部署。
+- 默认在线预览地址为 `https://wms.875161621.workers.dev`；不处理 `wms.ichengle.top` 自定义域名绑定，除非用户重新明确要求。
 - 不为本项目配置或启用 GitHub Pages。
 - 除非用户明确输入“在线预览”，否则不得提交代码或推送远程仓库。
 - 用户输入“本地预览”时，只启动并打开本地预览，不执行线上部署。
