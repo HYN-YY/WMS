@@ -1,0 +1,13 @@
+{
+  "name": "wms-cloudflare-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "npm --prefix prototype run check",
+    "test": "npm --prefix prototype test",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
